@@ -1,0 +1,59 @@
+{
+  // Use the backend virtualenv as the workspace Python interpreter so Pylance
+  // can resolve installed packages used by the FastAPI backend.
+  "python.defaultInterpreterPath": "${workspaceFolder}/backend/.venv/bin/python",
+
+  // Help the language server find project packages/modules under backend
+  "python.analysis.extraPaths": [
+    "${workspaceFolder}/backend"
+  ],
+
+  // Optional: adjust index depth for package discovery
+  "python.analysis.packageIndexDepth": 3,
+
+  // =========================
+  // GLOBAL FORMAT ON SAVE
+  // =========================
+  "editor.formatOnSave": true,
+  "editor.codeActionsOnSave": {
+    "source.organizeImports": "explicit"
+  },
+
+  // =========================
+  // PRETTIER (Frontend)
+  // =========================
+  "editor.defaultFormatter": "esbenp.prettier-vscode",
+  "[javascript]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
+  "[javascriptreact]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
+  "[typescript]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
+  "[vue]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
+  "[json]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
+
+  // =========================
+  // PYTHON (Backend)
+  // =========================
+  "[python]": {
+    "editor.defaultFormatter": "ms-python.black-formatter"
+  },
+  "python.formatting.provider": "none",
+
+  // Optional but recommended
+  "python.analysis.autoImportCompletions": true,
+  "python.analysis.typeCheckingMode": "basic",
+
+  // =========================
+  // FILE CLEANUP
+  // =========================
+  "files.trimTrailingWhitespace": true,
+  "files.insertFinalNewline": true
+}

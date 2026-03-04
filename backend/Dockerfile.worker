@@ -1,0 +1,91 @@
+# Accessibility Platform — Celery Worker Dockerfile
+# Includes Playwright + Chromium for accessibility scanning
+
+FROM python:3.12-slim AS base
+
+# Prevent Python from writing pyc files and buffering stdout/stderr
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    APP_HOME=/app \
+    # Playwright configuration
+    PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+
+WORKDIR $APP_HOME
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    # Required for asyncpg
+    libpq-dev \
+    # Required for weasyprint PDF generation
+    libpango-1.0-0 \
+    libpangocairo-1.0-0 \
+    libgdk-pixbuf-2.0-0 \
+    libffi-dev \
+    shared-mime-info \
+    # Required for Playwright/Chromium
+    libnss3 \
+    libnspr4 \
+    libatk1.0-0 \
+    libatk-bridge2.0-0 \
+    libcups2 \
+    libdrm2 \
+    libxkbcommon0 \
+    libxcomposite1 \
+    libxdamage1 \
+    libxfixes3 \
+    libxrandr2 \
+    libgbm1 \
+    libasound2t64 \
+    libpangoft2-1.0-0 \
+    fonts-liberation \
+    fonts-noto-color-emoji \
+    # Useful for debugging
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Dependencies stage
+FROM base AS dependencies
+
+# Install build tools
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Install Playwright and Chromium browser
+RUN pip install playwright && \
+    playwright install chromium --with-deps
+
+# Production stage
+FROM base AS production
+
+# Create non-root user for security
+RUN groupadd --gid 1000 appgroup && \
+    useradd --uid 1000 --gid appgroup --shell /bin/bash --create-home appuser
+
+# Copy installed packages from dependencies stage
+COPY --from=dependencies /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages
+COPY --from=dependencies /usr/local/bin /usr/local/bin
+
+# Copy Playwright browsers
+COPY --from=dependencies /ms-playwright /ms-playwright
+
+# Copy application code
+COPY --chown=appuser:appgroup . .
+
+# Ensure Playwright can find browsers
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+
+# Switch to non-root user
+USER appuser
+
+# Default command - run Celery worker
+# Queues: crawl (website crawling), scan (accessibility scans), report (PDF generation)
+CMD ["celery", "-A", "tasks.celery_app", "worker", \
+     "--loglevel=info", \
+     "--concurrency=2", \
+     "-Q", "crawl,scan,report"]

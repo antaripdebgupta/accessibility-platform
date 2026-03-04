@@ -1,0 +1,38 @@
+# Docker Ignore — Backend
+
+# Virtual environment
+.venv/
+venv/
+env/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Environment files
+.env
+
+# IDE
+.vscode/
+.idea/
+
+# Test/coverage
+.pytest_cache/
+coverage/
+htmlcov/
+
+# Git
+.git/
+.gitignore
+
+# Alembic versions (migrations should be copied)
+# alembic/versions/
+
+# Logs
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db

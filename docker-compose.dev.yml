@@ -1,0 +1,68 @@
+# =============================================================================
+# Docker Compose Dev Override — Hot Reload & Development Tools
+# Usage: docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+# =============================================================================
+
+services:
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: dependencies # Use dependencies stage to have packages installed
+    volumes:
+      - ./backend:/app
+    environment:
+      - DEBUG=true
+      - ENV=development
+    # Use uvicorn with reload for development
+    command: >
+      uvicorn main:app
+      --host 0.0.0.0
+      --port 8000
+      --reload
+      --reload-dir /app
+      --log-level debug
+
+  worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.worker
+      target: dependencies
+    volumes:
+      - ./backend:/app
+    environment:
+      - DEBUG=true
+      - ENV=development
+    # Celery with autoreload for development
+    command: >
+      watchfiles
+      --filter python
+      'celery -A tasks.celery_app worker --loglevel=debug -Q crawl,scan,report'
+      /app
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      target: development
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules # Exclude node_modules from mount
+    ports:
+      - "5173:5173"
+    environment:
+      - NODE_ENV=development
+    command: npm run dev -- --host 0.0.0.0
+
+  # In dev mode, nginx proxies to the Vite dev server
+  nginx:
+    build:
+      context: .
+      dockerfile: ./nginx/Dockerfile.dev
+    container_name: a11y_nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      - api
+      - frontend

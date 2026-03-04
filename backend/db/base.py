@@ -1,0 +1,9 @@
+from sqlalchemy.orm import DeclarativeBase
+import uuid
+from sqlalchemy import Column
+from sqlalchemy.dialects.postgresql import UUID
+
+
+class Base(DeclarativeBase):
+    """Base class for all SQLAlchemy ORM models."""
+    pass
