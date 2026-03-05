@@ -1,32 +1,5 @@
 <template>
-  <div class="min-h-screen bg-gray-50">
-    <!-- Navigation -->
-    <nav class="border-b border-gray-200 bg-white">
-      <div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-        <div class="flex h-16 items-center">
-          <RouterLink
-            to="/dashboard"
-            class="flex items-center text-gray-500 hover:text-gray-700"
-          >
-            <svg
-              class="mr-2 h-5 w-5"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="2"
-                d="M10 19l-7-7m0 0l7-7m-7 7h18"
-              />
-            </svg>
-            Back to Dashboard
-          </RouterLink>
-        </div>
-      </div>
-    </nav>
-
+  <AppLayout>
     <!-- Loading State -->
     <div
       v-if="evaluationsStore.loading"
@@ -36,13 +9,14 @@
     </div>
 
     <!-- Error State -->
-    <div v-else-if="error" class="mx-auto max-w-2xl px-4 py-16 sm:px-6 lg:px-8">
+    <div v-else-if="error" class="mx-auto max-w-2xl py-16">
       <div class="rounded-lg border border-red-200 bg-red-50 p-6 text-center">
         <svg
           class="mx-auto h-12 w-12 text-red-400"
           fill="none"
           stroke="currentColor"
           viewBox="0 0 24 24"
+          aria-hidden="true"
         >
           <path
             stroke-linecap="round"
@@ -56,7 +30,7 @@
         </h3>
         <RouterLink
           to="/dashboard"
-          class="mt-4 inline-flex items-center rounded-md bg-red-100 px-4 py-2 text-sm font-medium text-red-700 hover:bg-red-200"
+          class="mt-4 inline-flex items-center rounded-md bg-red-100 px-4 py-2 text-sm font-medium text-red-700 hover:bg-red-200 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2"
         >
           Return to Dashboard
         </RouterLink>
@@ -64,277 +38,228 @@
     </div>
 
     <!-- Evaluation Detail -->
-    <main v-else-if="evaluation" class="py-8">
-      <div class="mx-auto max-w-4xl px-4 sm:px-6 lg:px-8">
-        <!-- Header -->
-        <div class="mb-8">
-          <div class="flex items-start justify-between">
-            <div>
-              <h1 class="text-2xl font-bold text-gray-900">
-                {{ evaluation.title }}
-              </h1>
-              <a
-                :href="evaluation.target_url"
-                target="_blank"
-                rel="noopener noreferrer"
-                class="mt-1 inline-flex items-center text-sm text-indigo-600 hover:text-indigo-800"
-              >
-                {{ evaluation.target_url }}
-                <svg
-                  class="ml-1 h-4 w-4"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    stroke-width="2"
-                    d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"
-                  />
-                </svg>
-              </a>
-            </div>
-            <StatusBadge :status="evaluation.status" />
-          </div>
-
-          <!-- Meta information -->
-          <div
-            class="mt-4 flex flex-wrap items-center gap-4 text-sm text-gray-500"
+    <template v-else-if="evaluation">
+      <!-- Page Header -->
+      <PageHeader
+        :title="evaluation.title"
+        :subtitle="evaluation.target_url"
+        :back-to="{ name: 'Dashboard' }"
+      >
+        <StatusBadge :status="evaluation.status" />
+        <button
+          v-if="canDelete"
+          type="button"
+          class="ml-3 inline-flex items-center rounded-md border border-red-300 bg-white px-3 py-2 text-sm font-medium text-red-700 shadow-sm hover:bg-red-50 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2"
+          @click="handleDelete"
+        >
+          <svg
+            class="-ml-0.5 mr-1.5 h-4 w-4"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+            aria-hidden="true"
           >
-            <span class="inline-flex items-center">
-              <svg
-                class="mr-1.5 h-4 w-4 text-gray-400"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  stroke-width="2"
-                  d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
-                />
-              </svg>
-              WCAG {{ evaluation.wcag_version }} Level
-              {{ evaluation.conformance_level }}
-            </span>
-            <span class="inline-flex items-center">
-              <svg
-                class="mr-1.5 h-4 w-4 text-gray-400"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  stroke-width="2"
-                  d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"
-                />
-              </svg>
-              Created {{ formattedDate }}
-            </span>
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+            />
+          </svg>
+          Delete
+        </button>
+      </PageHeader>
+
+      <!-- Step Indicator -->
+      <div class="mb-8 rounded-lg border border-gray-200 bg-white p-6">
+        <StepIndicator :current-status="evaluation.status" />
+      </div>
+
+      <!-- Project Details Card -->
+      <div class="mb-8 rounded-lg border border-gray-200 bg-white p-6">
+        <h2 class="mb-4 text-lg font-medium text-gray-900">Project Details</h2>
+        <EvaluationMeta :evaluation="evaluation" />
+      </div>
+
+      <!-- Action Panel -->
+      <div class="mb-8 rounded-lg border border-gray-200 bg-white p-6">
+        <h2 class="mb-4 text-lg font-medium text-gray-900">Actions</h2>
+
+        <!-- DRAFT status -->
+        <div v-if="evaluation.status === 'DRAFT'" class="space-y-4">
+          <p class="text-sm text-gray-600">
+            Begin by crawling the target website to discover all pages.
+          </p>
+          <RouterLink
+            :to="`/evaluations/${evaluation.id}/explore`"
+            class="inline-flex items-center rounded-md px-6 py-3 text-sm font-semibold text-white shadow-sm hover:bg-indigo-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
+          >
+            Configure & Start Exploration
+          </RouterLink>
+        </div>
+
+        <!-- SCOPING status -->
+        <div v-else-if="evaluation.status === 'SCOPING'" class="space-y-4">
+          <p class="text-sm text-gray-600">
+            Configure your evaluation scope and start exploration.
+          </p>
+          <RouterLink
+            :to="`/evaluations/${evaluation.id}/explore`"
+            class="inline-flex items-center rounded-md bg-indigo-600 px-6 py-3 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
+          >
+            Configure & Start Exploration
+          </RouterLink>
+        </div>
+
+        <!-- EXPLORING status -->
+        <div v-else-if="evaluation.status === 'EXPLORING'" class="space-y-4">
+          <div class="flex items-center space-x-2">
+            <LoadingSpinner size="sm" />
+            <span class="text-sm text-gray-600"
+              >Exploration in progress...</span
+            >
+          </div>
+          <RouterLink
+            :to="`/evaluations/${evaluation.id}/explore`"
+            class="inline-flex items-center rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
+          >
+            View Pages
+          </RouterLink>
+        </div>
+
+        <!-- SAMPLING status -->
+        <div v-else-if="evaluation.status === 'SAMPLING'" class="space-y-4">
+          <p class="text-sm text-gray-600">
+            Select pages for sampling and start the audit.
+          </p>
+          <div class="flex items-center space-x-3">
+            <button
+              type="button"
+              class="inline-flex items-center rounded-md bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
+            >
+              Start Audit
+            </button>
+            <RouterLink
+              :to="`/evaluations/${evaluation.id}/explore`"
+              class="text-sm text-indigo-600 hover:text-indigo-500"
+            >
+              View discovered pages
+            </RouterLink>
           </div>
         </div>
 
-        <!-- Workflow Steps -->
-        <div class="mb-8 rounded-lg border border-gray-200 bg-white p-6">
-          <h2 class="mb-4 text-lg font-medium text-gray-900">
-            Evaluation Progress
-          </h2>
-
-          <nav aria-label="Progress">
-            <ol class="flex items-center">
-              <li
-                v-for="(step, index) in workflowSteps"
-                :key="step.name"
-                :class="[
-                  index !== workflowSteps.length - 1 ? 'flex-1' : '',
-                  'relative',
-                ]"
-              >
-                <div class="flex items-center">
-                  <span
-                    :class="[
-                      'flex h-10 w-10 items-center justify-center rounded-full border-2',
-                      step.status === 'current'
-                        ? 'border-indigo-600 bg-indigo-600 text-white'
-                        : step.status === 'complete'
-                          ? 'border-indigo-600 bg-indigo-600 text-white'
-                          : 'border-gray-300 bg-white text-gray-500',
-                    ]"
-                  >
-                    <svg
-                      v-if="step.status === 'complete'"
-                      class="h-5 w-5"
-                      fill="currentColor"
-                      viewBox="0 0 20 20"
-                    >
-                      <path
-                        fill-rule="evenodd"
-                        d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
-                        clip-rule="evenodd"
-                      />
-                    </svg>
-                    <span v-else>{{ index + 1 }}</span>
-                  </span>
-                  <span
-                    v-if="index !== workflowSteps.length - 1"
-                    class="ml-4 flex-1 border-t-2"
-                    :class="[
-                      step.status === 'complete'
-                        ? 'border-indigo-600'
-                        : 'border-gray-300',
-                    ]"
-                  ></span>
-                </div>
-                <span
-                  :class="[
-                    'absolute -bottom-6 left-0 text-xs font-medium',
-                    step.status === 'current'
-                      ? 'text-indigo-600'
-                      : 'text-gray-500',
-                  ]"
-                >
-                  {{ step.name }}
-                </span>
-              </li>
-            </ol>
-          </nav>
+        <!-- AUDITING status -->
+        <div v-else-if="evaluation.status === 'AUDITING'" class="space-y-4">
+          <div class="flex items-center space-x-2">
+            <LoadingSpinner size="sm" />
+            <span class="text-sm text-gray-600">Audit in progress...</span>
+          </div>
+          <RouterLink
+            :to="`/evaluations/${evaluation.id}/findings`"
+            class="inline-flex items-center rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
+          >
+            View Findings
+          </RouterLink>
         </div>
 
-        <!-- Actions Card -->
-        <div class="rounded-lg border border-gray-200 bg-white p-6">
-          <h2 class="mb-4 text-lg font-medium text-gray-900">Next Steps</h2>
+        <!-- REPORTING status -->
+        <div v-else-if="evaluation.status === 'REPORTING'" class="space-y-4">
+          <div class="flex items-center space-x-2">
+            <LoadingSpinner size="sm" />
+            <span class="text-sm text-gray-600">Generating report...</span>
+          </div>
+        </div>
 
-          <div class="space-y-4">
-            <div
-              class="flex items-center justify-between rounded-lg border border-gray-200 bg-gray-50 p-4"
+        <!-- COMPLETE status -->
+        <div v-else-if="evaluation.status === 'COMPLETE'" class="space-y-4">
+          <p class="text-sm text-gray-600">
+            Your accessibility evaluation is complete.
+          </p>
+          <div class="flex items-center space-x-3">
+            <RouterLink
+              :to="`/evaluations/${evaluation.id}/reports`"
+              class="inline-flex items-center rounded-md bg-green-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-green-500 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2"
             >
-              <div>
-                <h3 class="font-medium text-gray-900">Start Exploration</h3>
-                <p class="mt-1 text-sm text-gray-500">
-                  Crawl the website to discover pages for evaluation
-                </p>
-              </div>
-              <div class="relative">
-                <button
-                  disabled
-                  class="inline-flex cursor-not-allowed items-center rounded-md bg-gray-300 px-4 py-2 text-sm font-medium text-gray-500"
-                  title="Coming soon"
-                >
-                  Start Exploration
-                </button>
-                <span
-                  class="absolute -right-2 -top-2 inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800"
-                >
-                  Coming soon
-                </span>
-              </div>
-            </div>
-
-            <div
-              class="flex items-center justify-between rounded-lg border border-dashed border-gray-300 p-4"
+              View Report
+            </RouterLink>
+            <RouterLink
+              :to="`/evaluations/${evaluation.id}/findings`"
+              class="inline-flex items-center rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
             >
-              <div>
-                <h3 class="font-medium text-gray-400">Run Automated Scan</h3>
-                <p class="mt-1 text-sm text-gray-400">
-                  Scan selected pages with axe-core and pa11y
-                </p>
-              </div>
-              <span class="text-sm text-gray-400">Locked</span>
-            </div>
-
-            <div
-              class="flex items-center justify-between rounded-lg border border-dashed border-gray-300 p-4"
-            >
-              <div>
-                <h3 class="font-medium text-gray-400">Review Findings</h3>
-                <p class="mt-1 text-sm text-gray-400">
-                  Manually review and confirm accessibility issues
-                </p>
-              </div>
-              <span class="text-sm text-gray-400">Locked</span>
-            </div>
-
-            <div
-              class="flex items-center justify-between rounded-lg border border-dashed border-gray-300 p-4"
-            >
-              <div>
-                <h3 class="font-medium text-gray-400">Generate Report</h3>
-                <p class="mt-1 text-sm text-gray-400">
-                  Create accessibility conformance report
-                </p>
-              </div>
-              <span class="text-sm text-gray-400">Locked</span>
-            </div>
+              View Findings
+            </RouterLink>
           </div>
         </div>
       </div>
-    </main>
-  </div>
+
+      <!-- Stats Row (only for AUDITING or COMPLETE) -->
+      <div v-if="showStats" class="grid grid-cols-1 gap-4 sm:grid-cols-3">
+        <div class="rounded-lg border border-gray-200 bg-white p-6">
+          <dt class="text-sm font-medium text-gray-500">Pages Scanned</dt>
+          <dd class="mt-1 text-3xl font-semibold text-gray-400">0</dd>
+        </div>
+        <div class="rounded-lg border border-gray-200 bg-white p-6">
+          <dt class="text-sm font-medium text-gray-500">Issues Found</dt>
+          <dd class="mt-1 text-3xl font-semibold text-gray-400">0</dd>
+        </div>
+        <div class="rounded-lg border border-gray-200 bg-white p-6">
+          <dt class="text-sm font-medium text-gray-500">Criteria Affected</dt>
+          <dd class="mt-1 text-3xl font-semibold text-gray-400">0</dd>
+        </div>
+      </div>
+    </template>
+  </AppLayout>
 </template>
 
 <script setup>
 import { computed, onMounted, ref } from 'vue'
-import { RouterLink, useRoute } from 'vue-router'
+import { RouterLink, useRoute, useRouter } from 'vue-router'
+
 import LoadingSpinner from '../components/common/LoadingSpinner.vue'
 import StatusBadge from '../components/common/StatusBadge.vue'
+import EvaluationMeta from '../components/evaluation/EvaluationMeta.vue'
+import StepIndicator from '../components/evaluation/StepIndicator.vue'
+import AppLayout from '../components/layout/AppLayout.vue'
+import PageHeader from '../components/layout/PageHeader.vue'
+import { useAuthStore } from '../stores/auth'
 import { useEvaluationsStore } from '../stores/evaluations'
 
 const route = useRoute()
+const router = useRouter()
+const authStore = useAuthStore()
 const evaluationsStore = useEvaluationsStore()
 
 const error = ref('')
 
+// Computed properties
 const evaluation = computed(() => evaluationsStore.current)
 
-const formattedDate = computed(() => {
-  if (!evaluation.value?.created_at) return ''
-
-  const date = new Date(evaluation.value.created_at)
-  return date.toLocaleDateString('en-US', {
-    month: 'long',
-    day: 'numeric',
-    year: 'numeric',
-  })
+const showStats = computed(() => {
+  const status = evaluation.value?.status?.toUpperCase()
+  return status === 'AUDITING' || status === 'COMPLETE'
 })
 
-const workflowSteps = computed(() => {
-  const status = evaluation.value?.status || 'DRAFT'
+const canDelete = computed(() => {
+  // For now, allow deletion for all users with access
+  // In a real app, you'd check if user is owner
+  return evaluation.value && evaluation.value.status !== 'DELETED'
+})
 
-  const steps = [
-    { name: 'Explore', status: 'upcoming' },
-    { name: 'Scan', status: 'upcoming' },
-    { name: 'Review', status: 'upcoming' },
-    { name: 'Report', status: 'upcoming' },
-  ]
+// Methods
+async function handleDelete() {
+  const confirmed = window.confirm('Are you sure? This cannot be undone.')
 
-  // Determine step statuses based on evaluation status
-  const statusIndex = {
-    DRAFT: 0,
-    SCOPING: 0,
-    EXPLORING: 0,
-    SAMPLING: 1,
-    AUDITING: 2,
-    REPORTING: 3,
-    COMPLETE: 4,
+  if (!confirmed) return
+
+  try {
+    await evaluationsStore.deleteOne(evaluation.value.id)
+    router.push('/dashboard')
+  } catch (err) {
+    error.value = err.message || 'Failed to delete evaluation'
   }
+}
 
-  const currentIndex = statusIndex[status] ?? 0
-
-  steps.forEach((step, index) => {
-    if (index < currentIndex) {
-      step.status = 'complete'
-    } else if (index === currentIndex) {
-      step.status = 'current'
-    }
-  })
-
-  return steps
-})
-
+// Lifecycle
 onMounted(async () => {
   const id = route.params.id
 

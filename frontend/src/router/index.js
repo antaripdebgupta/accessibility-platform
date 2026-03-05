@@ -43,6 +43,24 @@ const routes = [
     meta: { requiresAuth: true },
   },
   {
+    path: '/evaluations/:id/explore',
+    name: 'Exploration',
+    component: () => import('../pages/ExplorationPage.vue'),
+    meta: { requiresAuth: true },
+  },
+  {
+    path: '/evaluations/:id/findings',
+    name: 'Findings',
+    component: () => import('../pages/FindingsPage.vue'),
+    meta: { requiresAuth: true },
+  },
+  {
+    path: '/evaluations/:id/reports',
+    name: 'Reports',
+    component: () => import('../pages/ReportsPage.vue'),
+    meta: { requiresAuth: true },
+  },
+  {
     path: '/:pathMatch(.*)*',
     name: 'NotFound',
     component: () => import('../pages/NotFoundPage.vue'),

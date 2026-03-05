@@ -3,17 +3,22 @@ Evaluation API routes.
 
 Provides CRUD endpoints for evaluation projects.
 All routes are scoped to the user's organisation(s).
+
+Firestore Sync:
+- POST, PATCH, and DELETE routes sync to Firestore as a background task
+- Firestore failures are logged but never block the API response
 """
 
 from typing import Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from core.auth import get_current_user, get_current_org
+from core.firestore import sync_evaluation_to_firestore, delete_evaluation_from_firestore
 from db.session import get_db
 from models.user import User
 from models.user_org_role import UserOrganisationRole
@@ -111,6 +116,7 @@ async def list_evaluations(
 @router.post("", response_model=EvaluationResponse, status_code=status.HTTP_201_CREATED)
 async def create_evaluation(
     data: EvaluationCreate,
+    background_tasks: BackgroundTasks,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> EvaluationResponse:
@@ -119,8 +125,11 @@ async def create_evaluation(
     Creates a new evaluation project in the user's first organisation.
     If the user doesn't belong to any organisation, returns a 400 error.
 
+    Syncs the created evaluation to Firestore as a background task.
+
     Args:
         data: Evaluation creation data
+        background_tasks: FastAPI BackgroundTasks for Firestore sync
 
     Returns:
         EvaluationResponse: Created evaluation project
@@ -149,7 +158,8 @@ async def create_evaluation(
     db.add(evaluation)
     await db.flush()
 
-    return EvaluationResponse(
+    # Build response
+    response = EvaluationResponse(
         id=evaluation.id,
         organisation_id=evaluation.organisation_id,
         created_by=evaluation.created_by,
@@ -163,6 +173,24 @@ async def create_evaluation(
         created_at=evaluation.created_at,
         updated_at=evaluation.updated_at,
     )
+
+    # Sync to Firestore as background task (fire-and-forget)
+    evaluation_dict = {
+        "id": evaluation.id,
+        "organisation_id": evaluation.organisation_id,
+        "created_by": evaluation.created_by,
+        "title": evaluation.title,
+        "target_url": evaluation.target_url,
+        "wcag_version": evaluation.wcag_version,
+        "conformance_level": evaluation.conformance_level,
+        "audit_type": evaluation.audit_type,
+        "status": evaluation.status,
+        "created_at": evaluation.created_at,
+        "updated_at": evaluation.updated_at,
+    }
+    background_tasks.add_task(sync_evaluation_to_firestore, evaluation_dict)
+
+    return response
 
 
 @router.get("/{evaluation_id}", response_model=EvaluationResponse)
@@ -227,6 +255,7 @@ async def get_evaluation(
 async def update_evaluation(
     evaluation_id: UUID,
     data: EvaluationUpdate,
+    background_tasks: BackgroundTasks,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> EvaluationResponse:
@@ -235,9 +264,12 @@ async def update_evaluation(
     Updates allowed fields of an evaluation project.
     Status cannot be changed directly - it is managed by the workflow.
 
+    Syncs the updated evaluation to Firestore as a background task.
+
     Args:
         evaluation_id: UUID of the evaluation project
         data: Fields to update
+        background_tasks: FastAPI BackgroundTasks for Firestore sync
 
     Returns:
         EvaluationResponse: Updated evaluation project
@@ -282,7 +314,8 @@ async def update_evaluation(
 
     await db.flush()
 
-    return EvaluationResponse(
+    # Build response
+    response = EvaluationResponse(
         id=evaluation.id,
         organisation_id=evaluation.organisation_id,
         created_by=evaluation.created_by,
@@ -297,10 +330,29 @@ async def update_evaluation(
         updated_at=evaluation.updated_at,
     )
 
+    # Sync to Firestore as background task (fire-and-forget)
+    evaluation_dict = {
+        "id": evaluation.id,
+        "organisation_id": evaluation.organisation_id,
+        "created_by": evaluation.created_by,
+        "title": evaluation.title,
+        "target_url": evaluation.target_url,
+        "wcag_version": evaluation.wcag_version,
+        "conformance_level": evaluation.conformance_level,
+        "audit_type": evaluation.audit_type,
+        "status": evaluation.status,
+        "created_at": evaluation.created_at,
+        "updated_at": evaluation.updated_at,
+    }
+    background_tasks.add_task(sync_evaluation_to_firestore, evaluation_dict)
+
+    return response
+
 
 @router.delete("/{evaluation_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_evaluation(
     evaluation_id: UUID,
+    background_tasks: BackgroundTasks,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> None:
@@ -309,8 +361,11 @@ async def delete_evaluation(
     Requires owner role in the evaluation's organisation.
     Sets the evaluation status to DELETED instead of hard delete.
 
+    Deletes the evaluation from Firestore as a background task.
+
     Args:
         evaluation_id: UUID of the evaluation project
+        background_tasks: FastAPI BackgroundTasks for Firestore sync
 
     Raises:
         HTTPException(404): If evaluation doesn't exist
@@ -349,3 +404,6 @@ async def delete_evaluation(
     # Soft delete - set status to DELETED
     evaluation.status = "DELETED"
     await db.flush()
+
+    # Delete from Firestore as background task (fire-and-forget)
+    background_tasks.add_task(delete_evaluation_from_firestore, str(evaluation_id))
