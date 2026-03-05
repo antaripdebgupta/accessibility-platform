@@ -31,6 +31,18 @@ const routes = [
     meta: { requiresAuth: true },
   },
   {
+    path: '/evaluations/new',
+    name: 'EvaluationCreate',
+    component: () => import('../pages/EvaluationCreatePage.vue'),
+    meta: { requiresAuth: true },
+  },
+  {
+    path: '/evaluations/:id',
+    name: 'EvaluationDetail',
+    component: () => import('../pages/EvaluationDetailPage.vue'),
+    meta: { requiresAuth: true },
+  },
+  {
     path: '/:pathMatch(.*)*',
     name: 'NotFound',
     component: () => import('../pages/NotFoundPage.vue'),

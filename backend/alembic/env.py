@@ -19,6 +19,10 @@ from alembic import context
 # Import your models' Base for autogenerate support
 from db.base import Base
 
+# Import ALL models to register them with SQLAlchemy metadata
+# This is required for Alembic autogenerate to detect all tables
+import models  # noqa: F401
+
 # Import settings to get database URL
 from core.config import settings
 

@@ -1,7 +1,5 @@
-# =============================================================================
 # Docker Compose Dev Override — Hot Reload & Development Tools
 # Usage: docker compose -f docker-compose.yml -f docker-compose.dev.yml up
-# =============================================================================
 
 services:
   api:
@@ -14,6 +12,7 @@ services:
     environment:
       - DEBUG=true
       - ENV=development
+      - PYTHONPATH=/app
     # Use uvicorn with reload for development
     command: >
       uvicorn main:app

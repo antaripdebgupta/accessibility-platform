@@ -1,0 +1,26 @@
+"""
+SQLAlchemy ORM Models Package.
+
+This module imports all models to ensure they are registered with SQLAlchemy's
+metadata for Alembic autogenerate support.
+"""
+
+from models.organisation import Organisation
+from models.user import User
+from models.user_org_role import UserOrganisationRole
+from models.wcag import WcagCriterion
+from models.evaluation import EvaluationProject
+from models.page import Page
+from models.finding import Finding
+from models.report import Report
+
+__all__ = [
+    "Organisation",
+    "User",
+    "UserOrganisationRole",
+    "WcagCriterion",
+    "EvaluationProject",
+    "Page",
+    "Finding",
+    "Report",
+]

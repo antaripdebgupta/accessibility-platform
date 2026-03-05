@@ -1,28 +1,231 @@
-"""FastAPI dependency for Firebase authenticated routes.
+"""FastAPI dependencies for Firebase authenticated routes.
 
-Provides a simple dependency `get_current_user` that verifies the Bearer
-token using the Admin SDK (core.firebase.verify_token).
+Provides dependencies for:
+- get_current_user: Verifies Bearer token and returns/creates User ORM object
+- get_current_org: Returns user, organisation, and role for evaluation routes
 """
-from fastapi import Depends, HTTPException, status
+
+from datetime import datetime
+from typing import Tuple
+from uuid import UUID
+
+from fastapi import Depends, HTTPException, Path, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from core.firebase import verify_token
+from db.session import get_db
+from models.user import User
+from models.user_org_role import UserOrganisationRole
+from models.organisation import Organisation
+from models.evaluation import EvaluationProject
 
 security = HTTPBearer()
 
 
-async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)) -> dict:
-    """Extract and verify the bearer token and return decoded claims.
+async def get_current_user(
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+    db: AsyncSession = Depends(get_db),
+) -> User:
+    """Extract and verify the bearer token and return User ORM object.
 
-    Raises HTTPException(401) on invalid or missing token.
+    If the user doesn't exist in the database (first login), creates a new user record.
+    Updates last_login_at timestamp on each authentication.
+
+    Args:
+        credentials: HTTP Bearer token from Authorization header
+        db: Async database session
+
+    Returns:
+        User ORM object with organisation_roles eagerly loaded
+
+    Raises:
+        HTTPException(401): If token is missing, invalid, or expired
     """
     token = credentials.credentials if credentials else None
     if not token:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing or invalid authorization token")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing or invalid authorization token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
     try:
         claims = verify_token(token)
     except Exception:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid authentication credentials")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid authentication credentials",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
-    return claims
+    firebase_uid = claims.get("uid")
+    email = claims.get("email")
+    display_name = claims.get("name")
+
+    if not firebase_uid or not email:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token claims: missing uid or email",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    # Look up user by firebase_uid with organisation roles eagerly loaded
+    stmt = (
+        select(User)
+        .options(selectinload(User.organisation_roles).selectinload(UserOrganisationRole.organisation))
+        .where(User.firebase_uid == firebase_uid)
+    )
+    result = await db.execute(stmt)
+    user = result.scalar_one_or_none()
+
+    if user is None:
+        # Check if user exists with same email but different firebase_uid
+        email_stmt = select(User).where(User.email == email)
+        email_result = await db.execute(email_stmt)
+        existing_user = email_result.scalar_one_or_none()
+        
+        if existing_user:
+            # Update firebase_uid for existing user
+            existing_user.firebase_uid = firebase_uid
+            existing_user.last_login_at = datetime.utcnow()
+            await db.flush()
+            
+            # Reload with relationships
+            stmt = (
+                select(User)
+                .options(selectinload(User.organisation_roles).selectinload(UserOrganisationRole.organisation))
+                .where(User.id == existing_user.id)
+            )
+            result = await db.execute(stmt)
+            user = result.scalar_one()
+        else:
+            # First login - create user and assign to default org
+            user = User(
+                firebase_uid=firebase_uid,
+                email=email,
+                display_name=display_name,
+                last_login_at=datetime.utcnow(),
+            )
+            db.add(user)
+            await db.flush()
+
+            # Get or create default organisation
+            default_org_id = UUID('00000000-0000-0000-0000-000000000001')
+            org_stmt = select(Organisation).where(Organisation.id == default_org_id)
+            org_result = await db.execute(org_stmt)
+            org = org_result.scalar_one_or_none()
+            
+            if not org:
+                org = Organisation(id=default_org_id, name='Default Organisation', slug='default')
+                db.add(org)
+                await db.flush()
+            
+            # Assign user to default org as owner
+            user_org_role = UserOrganisationRole(
+                user_id=user.id,
+                organisation_id=default_org_id,
+                role='owner'
+            )
+            db.add(user_org_role)
+            await db.flush()
+
+            # Reload with relationships
+            stmt = (
+                select(User)
+                .options(selectinload(User.organisation_roles).selectinload(UserOrganisationRole.organisation))
+                .where(User.id == user.id)
+            )
+            result = await db.execute(stmt)
+            user = result.scalar_one()
+    else:
+        # Update last login time
+        user.last_login_at = datetime.utcnow()
+        await db.flush()
+
+    return user
+
+
+async def get_current_org(
+    evaluation_id: UUID = Path(..., description="Evaluation project ID"),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> Tuple[User, Organisation, str]:
+    """Get user, organisation, and role for an evaluation project.
+
+    Verifies that the user has access to the evaluation's organisation.
+
+    Args:
+        evaluation_id: UUID of the evaluation project
+        user: Current authenticated user
+        db: Async database session
+
+    Returns:
+        Tuple of (User, Organisation, role string)
+
+    Raises:
+        HTTPException(404): If evaluation doesn't exist
+        HTTPException(403): If user is not a member of the evaluation's organisation
+    """
+    # Fetch the evaluation project
+    stmt = (
+        select(EvaluationProject)
+        .options(selectinload(EvaluationProject.organisation))
+        .where(EvaluationProject.id == evaluation_id)
+    )
+    result = await db.execute(stmt)
+    evaluation = result.scalar_one_or_none()
+
+    if evaluation is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Evaluation project with ID '{evaluation_id}' not found",
+        )
+
+    # Check if user is a member of the evaluation's organisation
+    org_role = None
+    for role_entry in user.organisation_roles:
+        if role_entry.organisation_id == evaluation.organisation_id:
+            org_role = role_entry
+            break
+
+    if org_role is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have access to this evaluation project",
+        )
+
+    return user, evaluation.organisation, org_role.role
+
+
+async def require_role(
+    required_roles: list[str],
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> User:
+    """Dependency factory for role-based access control.
+
+    This is a helper function - use it to create specific role dependencies.
+
+    Args:
+        required_roles: List of roles that are allowed access
+        user: Current authenticated user
+        db: Async database session
+
+    Returns:
+        User if they have one of the required roles
+
+    Raises:
+        HTTPException(403): If user doesn't have required role
+    """
+    # Check if user has any of the required roles in any organisation
+    for role_entry in user.organisation_roles:
+        if role_entry.role in required_roles:
+            return user
+
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail=f"This action requires one of the following roles: {', '.join(required_roles)}",
+    )

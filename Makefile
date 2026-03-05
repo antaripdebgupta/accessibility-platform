@@ -25,8 +25,8 @@ migrate:
 
 # Seed database
 seed:
-	docker compose exec api python scripts/seed_wcag.py
-	docker compose exec api python scripts/seed_dev.py
+	docker compose exec api python -m scripts.seed_wcag
+	docker compose exec api python -m scripts.seed_dev
 	@echo "Database seeded"
 
 # Tail logs
