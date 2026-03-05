@@ -105,7 +105,7 @@
           </p>
           <RouterLink
             :to="`/evaluations/${evaluation.id}/explore`"
-            class="inline-flex items-center rounded-md bg-indigo-600 px-6 py-3 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
+            class="inline-flex items-center rounded-md px-6 py-3 text-sm font-semibold text-white shadow-sm hover:bg-indigo-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
           >
             Configure & Start Exploration
           </RouterLink>
