@@ -74,27 +74,82 @@
               >Exploration complete - {{ totalPages }} pages discovered</span
             >
           </div>
-          <button
-            type="button"
-            class="inline-flex items-center rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
-            @click="handleRecrawl"
-          >
-            <svg
-              class="-ml-0.5 mr-1.5 h-4 w-4"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-              aria-hidden="true"
+          <div class="flex items-center space-x-3">
+            <button
+              type="button"
+              class="inline-flex items-center rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
+              @click="handleRecrawl"
             >
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="2"
-                d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+              <svg
+                class="-ml-0.5 mr-1.5 h-4 w-4"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+                aria-hidden="true"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                />
+              </svg>
+              Re-crawl Website
+            </button>
+            <!-- Start Audit Button -->
+            <button
+              v-if="canStartAudit"
+              type="button"
+              class="inline-flex items-center rounded-md bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+              :disabled="isScanning"
+              @click="handleStartAudit"
+            >
+              <LoadingSpinner
+                v-if="isScanning"
+                size="sm"
+                color="white"
+                class="mr-2"
               />
-            </svg>
-            Re-crawl Website
-          </button>
+              <svg
+                v-else
+                class="-ml-0.5 mr-1.5 h-4 w-4"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+                aria-hidden="true"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"
+                />
+              </svg>
+              {{ isScanning ? 'Scanning...' : 'Start Accessibility Audit' }}
+            </button>
+            <!-- Go to Findings (if audit complete) -->
+            <RouterLink
+              v-if="hasFindings"
+              :to="{ name: 'Findings', params: { id: evaluationId } }"
+              class="inline-flex items-center rounded-md bg-green-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-green-500 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2"
+            >
+              <svg
+                class="-ml-0.5 mr-1.5 h-4 w-4"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+                aria-hidden="true"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"
+                />
+              </svg>
+              Review Findings
+            </RouterLink>
+          </div>
         </div>
 
         <!-- Crawling In Progress -->
@@ -486,7 +541,7 @@
 
 <script setup>
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 
 import ErrorToast from '../components/common/ErrorToast.vue'
 import LoadingSpinner from '../components/common/LoadingSpinner.vue'
@@ -499,6 +554,7 @@ import { useEvaluationsStore } from '../stores/evaluations'
 import { useTasksStore } from '../stores/tasks'
 
 const route = useRoute()
+const router = useRouter()
 const evaluationsStore = useEvaluationsStore()
 const tasksStore = useTasksStore()
 
@@ -540,6 +596,21 @@ const hasCrawled = computed(() => {
     status === 'REPORTING' ||
     status === 'COMPLETE'
   )
+})
+
+const isScanning = computed(() => {
+  return evaluation.value?.status === 'AUDITING'
+})
+
+const canStartAudit = computed(() => {
+  // Can start audit if crawl is complete and not already auditing or done
+  const status = evaluation.value?.status
+  return status === 'SAMPLING' && totalPages.value > 0
+})
+
+const hasFindings = computed(() => {
+  const status = evaluation.value?.status
+  return status === 'REPORTING' || status === 'COMPLETE'
 })
 
 // Watch for page type filter changes
@@ -687,6 +758,39 @@ async function handleRecrawl() {
   totalPages.value = 0
   pageSummary.value = null
   await handleStartCrawl()
+}
+
+async function handleStartAudit() {
+  try {
+    const response = await api.post(`/evaluations/${evaluationId.value}/scan`)
+
+    const taskId = response.data.task_id
+
+    // Refresh evaluation to get updated status
+    await evaluationsStore.fetchOne(evaluationId.value)
+
+    // Start polling for task completion
+    tasksStore.startPolling(
+      taskId,
+      // On success
+      async (result) => {
+        await evaluationsStore.fetchOne(evaluationId.value)
+        // Redirect to findings page after successful audit
+        router.push({
+          name: 'Findings',
+          params: { id: evaluationId.value },
+        })
+      },
+      // On error
+      (errorMsg) => {
+        showErrorToast('Scan failed', errorMsg)
+        evaluationsStore.fetchOne(evaluationId.value)
+      },
+    )
+  } catch (err) {
+    console.error('Failed to start scan:', err)
+    showErrorToast('Failed to start accessibility audit', err.message)
+  }
 }
 
 // Lifecycle

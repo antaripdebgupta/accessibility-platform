@@ -26,6 +26,7 @@ class FindingResponse(BaseModel):
         criterion_id: WCAG criterion UUID (optional)
         criterion_code: WCAG criterion code like "1.1.1" (optional)
         criterion_name: WCAG criterion name (optional)
+        criterion_level: WCAG conformance level "A" or "AA" (optional)
         page_url: URL of the page where the issue was found
         source: Finding source (axe-core, pa11y, manual)
         rule_id: Automated tool rule identifier
@@ -39,6 +40,7 @@ class FindingResponse(BaseModel):
         reviewed_by: UUID of the reviewer (optional)
         reviewer_note: Note from the reviewer (optional)
         screenshot_key: MinIO storage key for finding screenshot
+        screenshot_url: Presigned MinIO URL for screenshot (optional)
         created_at: When the finding was created
         updated_at: When the finding was last updated
     """
@@ -49,6 +51,7 @@ class FindingResponse(BaseModel):
     criterion_id: Optional[UUID] = None
     criterion_code: Optional[str] = None
     criterion_name: Optional[str] = None
+    criterion_level: Optional[str] = None
     page_url: Optional[str] = None
     source: str
     rule_id: Optional[str] = None
@@ -62,6 +65,7 @@ class FindingResponse(BaseModel):
     reviewed_by: Optional[UUID] = None
     reviewer_note: Optional[str] = None
     screenshot_key: Optional[str] = None
+    screenshot_url: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 
