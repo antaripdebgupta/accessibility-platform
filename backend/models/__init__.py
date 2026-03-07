@@ -13,6 +13,7 @@ from models.evaluation import EvaluationProject
 from models.page import Page
 from models.finding import Finding
 from models.report import Report
+from models.audit_log import AuditLog
 
 __all__ = [
     "Organisation",
@@ -23,4 +24,5 @@ __all__ = [
     "Page",
     "Finding",
     "Report",
+    "AuditLog",
 ]

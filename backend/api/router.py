@@ -8,6 +8,7 @@ from api.v1.scanning import router as scanning_router
 from api.v1.findings import router as findings_router
 from api.v1.wcag import router as wcag_router
 from api.v1.reports import router as reports_router
+from api.v1.audit import router as audit_router
 
 # Master router — all routes live under /api/v1
 # Add new routers here as you build them
@@ -32,6 +33,9 @@ api_router.include_router(findings_router, prefix="")
 
 # Reports routes - evaluation-scoped endpoints
 api_router.include_router(reports_router, prefix="/evaluations")
+
+# Audit log routes - evaluation-scoped endpoints
+api_router.include_router(audit_router, prefix="/evaluations")
 
 # WCAG criteria routes
 api_router.include_router(wcag_router, prefix="/wcag")

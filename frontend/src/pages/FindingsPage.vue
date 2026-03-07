@@ -126,13 +126,119 @@
         @update:model-value="handleFiltersUpdate"
       />
 
+      <!-- Bulk Actions Bar -->
+      <transition
+        enter-active-class="transition duration-200 ease-out"
+        enter-from-class="translate-y-4 opacity-0"
+        enter-to-class="translate-y-0 opacity-100"
+        leave-active-class="transition duration-150 ease-in"
+        leave-from-class="translate-y-0 opacity-100"
+        leave-to-class="translate-y-4 opacity-0"
+      >
+        <div
+          v-if="hasSelection"
+          class="mb-4 flex items-center justify-between rounded-lg border border-indigo-200 bg-indigo-50 px-4 py-3"
+        >
+          <div class="flex items-center space-x-3">
+            <span class="text-sm font-medium text-indigo-700">
+              {{ selectionCount }} finding{{
+                selectionCount === 1 ? '' : 's'
+              }}
+              selected
+            </span>
+            <button
+              type="button"
+              class="text-sm text-indigo-600 hover:text-indigo-800"
+              @click="clearSelection"
+            >
+              Clear
+            </button>
+          </div>
+
+          <div class="flex items-center space-x-2">
+            <!-- Progress indicator -->
+            <div v-if="bulkProcessing" class="flex items-center space-x-2">
+              <svg
+                class="h-4 w-4 animate-spin text-indigo-600"
+                fill="none"
+                viewBox="0 0 24 24"
+              >
+                <circle
+                  class="opacity-25"
+                  cx="12"
+                  cy="12"
+                  r="10"
+                  stroke="currentColor"
+                  stroke-width="4"
+                ></circle>
+                <path
+                  class="opacity-75"
+                  fill="currentColor"
+                  d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                ></path>
+              </svg>
+              <span class="text-sm text-indigo-600">
+                {{ bulkProgress.current }}/{{ bulkProgress.total }}
+              </span>
+            </div>
+
+            <!-- Bulk action buttons -->
+            <button
+              type="button"
+              class="inline-flex items-center rounded-md bg-orange-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-orange-500 disabled:cursor-not-allowed disabled:opacity-50"
+              :disabled="bulkProcessing"
+              @click="bulkConfirm"
+            >
+              <svg
+                class="-ml-0.5 mr-1 h-4 w-4"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M5 13l4 4L19 7"
+                />
+              </svg>
+              Confirm All
+            </button>
+            <button
+              type="button"
+              class="inline-flex items-center rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+              :disabled="bulkProcessing"
+              @click="bulkDismiss"
+            >
+              <svg
+                class="-ml-0.5 mr-1 h-4 w-4"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M6 18L18 6M6 6l12 12"
+                />
+              </svg>
+              Dismiss All
+            </button>
+          </div>
+        </div>
+      </transition>
+
       <!-- Findings Table -->
       <FindingsTable
         :findings="findingsStore.findings"
         :loading="findingsStore.loadingFindings"
+        :selected-ids="selectedIds"
+        :selectable="true"
         @select="openDetail"
         @confirm="handleConfirm"
         @dismiss="handleDismiss"
+        @update:selected-ids="selectedIds = $event"
       />
 
       <!-- Pagination -->
@@ -213,7 +319,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 
 import ErrorToast from '../components/common/ErrorToast.vue'
@@ -243,6 +349,11 @@ const pages = ref([])
 const criteria = ref([])
 const generatingReport = ref(false)
 
+// Bulk selection state
+const selectedIds = ref([])
+const bulkProcessing = ref(false)
+const bulkProgress = ref({ current: 0, total: 0 })
+
 // Error toast state
 const showError = ref(false)
 const errorTitle = ref('Error')
@@ -251,6 +362,8 @@ const errorMessage = ref('')
 // Computed
 const evaluationId = computed(() => route.params.id)
 const evaluation = computed(() => evaluationsStore.current)
+const hasSelection = computed(() => selectedIds.value.length > 0)
+const selectionCount = computed(() => selectedIds.value.length)
 
 // Methods
 function showErrorToast(title, message) {
@@ -391,6 +504,91 @@ async function handleGenerateReport() {
   }
 }
 
+// Bulk actions
+function clearSelection() {
+  selectedIds.value = []
+}
+
+async function bulkConfirm() {
+  if (!hasSelection.value || bulkProcessing.value) return
+
+  bulkProcessing.value = true
+  bulkProgress.value = { current: 0, total: selectedIds.value.length }
+
+  try {
+    for (let i = 0; i < selectedIds.value.length; i++) {
+      const id = selectedIds.value[i]
+      await findingsStore.updateFinding(id, { status: 'CONFIRMED' })
+      bulkProgress.value.current = i + 1
+    }
+    clearSelection()
+    await Promise.all([
+      findingsStore.fetchFindings(evaluationId.value),
+      findingsStore.fetchSummary(evaluationId.value),
+    ])
+  } catch (err) {
+    showErrorToast('Bulk confirm failed', err.message)
+  } finally {
+    bulkProcessing.value = false
+    bulkProgress.value = { current: 0, total: 0 }
+  }
+}
+
+async function bulkDismiss() {
+  if (!hasSelection.value || bulkProcessing.value) return
+
+  bulkProcessing.value = true
+  bulkProgress.value = { current: 0, total: selectedIds.value.length }
+
+  try {
+    for (let i = 0; i < selectedIds.value.length; i++) {
+      const id = selectedIds.value[i]
+      await findingsStore.updateFinding(id, { status: 'DISMISSED' })
+      bulkProgress.value.current = i + 1
+    }
+    clearSelection()
+    await Promise.all([
+      findingsStore.fetchFindings(evaluationId.value),
+      findingsStore.fetchSummary(evaluationId.value),
+    ])
+  } catch (err) {
+    showErrorToast('Bulk dismiss failed', err.message)
+  } finally {
+    bulkProcessing.value = false
+    bulkProgress.value = { current: 0, total: 0 }
+  }
+}
+
+// Keyboard shortcuts
+function handleKeydown(e) {
+  // Ignore if user is typing in an input
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return
+
+  // Escape: clear selection
+  if (e.key === 'Escape') {
+    clearSelection()
+    selectedFinding.value = null
+  }
+
+  // c: confirm selected (with Ctrl/Cmd for bulk)
+  if ((e.ctrlKey || e.metaKey) && e.key === 'c' && hasSelection.value) {
+    e.preventDefault()
+    bulkConfirm()
+  }
+
+  // d: dismiss selected (with Ctrl/Cmd for bulk)
+  if ((e.ctrlKey || e.metaKey) && e.key === 'd' && hasSelection.value) {
+    e.preventDefault()
+    bulkDismiss()
+  }
+
+  // a: select all (with Ctrl/Cmd)
+  if ((e.ctrlKey || e.metaKey) && e.key === 'a') {
+    e.preventDefault()
+    selectedIds.value = findingsStore.findings.map((f) => f.id)
+  }
+}
+
 async function loadPages() {
   try {
     const response = await api.get(
@@ -415,6 +613,9 @@ async function loadCriteria() {
 onMounted(async () => {
   loading.value = true
 
+  // Add keyboard event listener
+  window.addEventListener('keydown', handleKeydown)
+
   try {
     // Fetch evaluation details
     await evaluationsStore.fetchOne(evaluationId.value)
@@ -433,5 +634,9 @@ onMounted(async () => {
   } finally {
     loading.value = false
   }
+})
+
+onUnmounted(() => {
+  window.removeEventListener('keydown', handleKeydown)
 })
 </script>

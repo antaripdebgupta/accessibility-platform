@@ -47,6 +47,16 @@
     <table v-else class="min-w-full divide-y divide-gray-200">
       <thead class="bg-gray-50">
         <tr>
+          <!-- Checkbox Header -->
+          <th v-if="selectable" scope="col" class="w-12 px-4 py-3">
+            <input
+              type="checkbox"
+              class="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+              :checked="allSelected"
+              :indeterminate="someSelected && !allSelected"
+              @change="handleSelectAll"
+            />
+          </th>
           <th
             scope="col"
             class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500"
@@ -89,9 +99,19 @@
         <tr
           v-for="finding in findings"
           :key="finding.id"
-          class="cursor-pointer transition-colors hover:bg-gray-50"
+          class="cursor-pointer transition-colors"
+          :class="isSelected(finding.id) ? 'bg-blue-50' : 'hover:bg-gray-50'"
           @click="$emit('select', finding)"
         >
+          <!-- Checkbox -->
+          <td v-if="selectable" class="w-12 px-4 py-4" @click.stop>
+            <input
+              type="checkbox"
+              class="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+              :checked="isSelected(finding.id)"
+              @change="toggleSelection(finding.id)"
+            />
+          </td>
           <!-- Severity -->
           <td class="whitespace-nowrap px-6 py-4">
             <SeverityBadge :severity="finding.severity || 'info'" />
@@ -187,9 +207,10 @@
 </template>
 
 <script setup>
+import { computed } from 'vue'
 import SeverityBadge from './SeverityBadge.vue'
 
-defineProps({
+const props = defineProps({
   findings: {
     type: Array,
     required: true,
@@ -198,9 +219,57 @@ defineProps({
     type: Boolean,
     default: false,
   },
+  selectedIds: {
+    type: Array,
+    default: () => [],
+  },
+  selectable: {
+    type: Boolean,
+    default: false,
+  },
 })
 
-defineEmits(['select', 'confirm', 'dismiss'])
+const emit = defineEmits(['select', 'confirm', 'dismiss', 'update:selectedIds'])
+
+const allSelected = computed(() => {
+  return (
+    props.findings.length > 0 &&
+    props.selectedIds.length === props.findings.length
+  )
+})
+
+const someSelected = computed(() => {
+  return (
+    props.selectedIds.length > 0 &&
+    props.selectedIds.length < props.findings.length
+  )
+})
+
+function isSelected(id) {
+  return props.selectedIds.includes(id)
+}
+
+function handleSelectAll() {
+  if (allSelected.value) {
+    emit('update:selectedIds', [])
+  } else {
+    emit(
+      'update:selectedIds',
+      props.findings.map((f) => f.id),
+    )
+  }
+}
+
+function toggleSelection(id) {
+  if (isSelected(id)) {
+    emit(
+      'update:selectedIds',
+      props.selectedIds.filter((i) => i !== id),
+    )
+  } else {
+    emit('update:selectedIds', [...props.selectedIds, id])
+  }
+}
 
 function truncateUrl(url) {
   try {

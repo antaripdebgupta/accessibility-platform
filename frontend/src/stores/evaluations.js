@@ -188,6 +188,44 @@ export const useEvaluationsStore = defineStore('evaluations', () => {
   }
 
   /**
+   * Advance evaluation to next status in workflow.
+   * Transitions: DRAFT→CRAWLING→SCANNING→REVIEWING→COMPLETE
+   * @param {string} id - Evaluation UUID
+   * @returns {Promise<Object>} Updated evaluation with new status
+   */
+  async function advanceStatus(id) {
+    loading.value = true
+    error.value = null
+
+    try {
+      const response = await api.post(`/evaluations/${id}/advance`)
+      const updated = response.data
+
+      // Update current if it's the same evaluation
+      if (current.value && current.value.id === id) {
+        current.value = updated
+      }
+
+      // Update in list
+      const index = list.value.findIndex((e) => e.id === id)
+      if (index !== -1) {
+        list.value[index] = {
+          ...list.value[index],
+          status: updated.status,
+        }
+      }
+
+      return updated
+    } catch (err) {
+      error.value =
+        err.response?.data?.detail || err.message || 'Failed to advance status'
+      throw err
+    } finally {
+      loading.value = false
+    }
+  }
+
+  /**
    * Clear the current evaluation selection.
    */
   function clearCurrent() {
@@ -223,6 +261,7 @@ export const useEvaluationsStore = defineStore('evaluations', () => {
     create,
     updateOne,
     deleteOne,
+    advanceStatus,
     clearCurrent,
     clearAll,
   }

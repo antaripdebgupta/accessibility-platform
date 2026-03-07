@@ -75,6 +75,34 @@
         <StepIndicator :current-status="evaluation.status" />
       </div>
 
+      <!-- Stats Section (always shown) -->
+      <div class="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-4">
+        <div class="rounded-lg border border-gray-200 bg-white p-6">
+          <dt class="text-sm font-medium text-gray-500">Pages Discovered</dt>
+          <dd class="mt-1 text-3xl font-semibold text-gray-900">
+            {{ stats.pagesDiscovered }}
+          </dd>
+        </div>
+        <div class="rounded-lg border border-gray-200 bg-white p-6">
+          <dt class="text-sm font-medium text-gray-500">Issues Found</dt>
+          <dd class="mt-1 text-3xl font-semibold text-gray-900">
+            {{ stats.issuesFound }}
+          </dd>
+        </div>
+        <div class="rounded-lg border border-gray-200 bg-white p-6">
+          <dt class="text-sm font-medium text-gray-500">Critical</dt>
+          <dd class="mt-1 text-3xl font-semibold text-red-600">
+            {{ stats.critical }}
+          </dd>
+        </div>
+        <div class="rounded-lg border border-gray-200 bg-white p-6">
+          <dt class="text-sm font-medium text-gray-500">Confirmed</dt>
+          <dd class="mt-1 text-3xl font-semibold text-orange-600">
+            {{ stats.confirmed }}
+          </dd>
+        </div>
+      </div>
+
       <!-- Project Details Card -->
       <div class="mb-8 rounded-lg border border-gray-200 bg-white p-6">
         <h2 class="mb-4 text-lg font-medium text-gray-900">Project Details</h2>
@@ -192,19 +220,31 @@
         </div>
       </div>
 
-      <!-- Stats Row (only for AUDITING or COMPLETE) -->
-      <div v-if="showStats" class="grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <div class="rounded-lg border border-gray-200 bg-white p-6">
-          <dt class="text-sm font-medium text-gray-500">Pages Scanned</dt>
-          <dd class="mt-1 text-3xl font-semibold text-gray-400">0</dd>
-        </div>
-        <div class="rounded-lg border border-gray-200 bg-white p-6">
-          <dt class="text-sm font-medium text-gray-500">Issues Found</dt>
-          <dd class="mt-1 text-3xl font-semibold text-gray-400">0</dd>
-        </div>
-        <div class="rounded-lg border border-gray-200 bg-white p-6">
-          <dt class="text-sm font-medium text-gray-500">Criteria Affected</dt>
-          <dd class="mt-1 text-3xl font-semibold text-gray-400">0</dd>
+      <!-- Activity Log Section (collapsible) -->
+      <div class="mb-8 rounded-lg border border-gray-200 bg-white">
+        <button
+          type="button"
+          class="flex w-full items-center justify-between p-6 text-left"
+          @click="activityLogExpanded = !activityLogExpanded"
+        >
+          <h2 class="text-lg font-medium text-gray-900">Activity Log</h2>
+          <svg
+            class="h-5 w-5 text-gray-500 transition-transform duration-200"
+            :class="{ 'rotate-180': activityLogExpanded }"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              d="M19 9l-7 7-7-7"
+            />
+          </svg>
+        </button>
+        <div v-if="activityLogExpanded" class="border-t border-gray-200 p-6">
+          <AuditLog :evaluation-id="evaluation.id" />
         </div>
       </div>
     </template>
@@ -212,40 +252,79 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 
 import LoadingSpinner from '../components/common/LoadingSpinner.vue'
 import StatusBadge from '../components/common/StatusBadge.vue'
+import AuditLog from '../components/evaluation/AuditLog.vue'
 import EvaluationMeta from '../components/evaluation/EvaluationMeta.vue'
 import StepIndicator from '../components/evaluation/StepIndicator.vue'
 import AppLayout from '../components/layout/AppLayout.vue'
 import PageHeader from '../components/layout/PageHeader.vue'
+import api from '../lib/api'
 import { useAuthStore } from '../stores/auth'
 import { useEvaluationsStore } from '../stores/evaluations'
+import { useFindingsStore } from '../stores/findings'
 
 const route = useRoute()
 const router = useRouter()
 const authStore = useAuthStore()
 const evaluationsStore = useEvaluationsStore()
+const findingsStore = useFindingsStore()
 
 const error = ref('')
+const activityLogExpanded = ref(false)
+
+// Stats
+const stats = reactive({
+  pagesDiscovered: 0,
+  issuesFound: 0,
+  critical: 0,
+  confirmed: 0,
+})
 
 // Computed properties
 const evaluation = computed(() => evaluationsStore.current)
 
-const showStats = computed(() => {
-  const status = evaluation.value?.status?.toUpperCase()
-  return status === 'AUDITING' || status === 'COMPLETE'
-})
-
 const canDelete = computed(() => {
-  // For now, allow deletion for all users with access
-  // In a real app, you'd check if user is owner
   return evaluation.value && evaluation.value.status !== 'DELETED'
 })
 
 // Methods
+async function fetchStats() {
+  if (!evaluation.value) return
+
+  const evaluationId = evaluation.value.id
+
+  // Fetch findings summary
+  try {
+    await findingsStore.fetchSummary(evaluationId)
+    stats.issuesFound = findingsStore.summary.total || 0
+    stats.critical = findingsStore.summary.critical || 0
+  } catch (err) {
+    console.error('Failed to fetch findings summary:', err)
+  }
+
+  // Fetch pages summary
+  try {
+    const response = await api.get(`/evaluations/${evaluationId}/pages/summary`)
+    stats.pagesDiscovered = response.data.total_pages || 0
+  } catch (err) {
+    console.error('Failed to fetch pages summary:', err)
+  }
+
+  // Fetch confirmed count
+  try {
+    const response = await api.get(
+      `/evaluations/${evaluationId}/findings?status=CONFIRMED&limit=1`,
+    )
+    stats.confirmed = response.data.total || 0
+  } catch (err) {
+    console.error('Failed to fetch confirmed count:', err)
+  }
+}
+
 async function handleDelete() {
   const confirmed = window.confirm('Are you sure? This cannot be undone.')
 
@@ -270,8 +349,15 @@ onMounted(async () => {
 
   try {
     await evaluationsStore.fetchOne(id)
+    await fetchStats()
   } catch (err) {
     error.value = err.message || 'Failed to load evaluation'
   }
 })
 </script>
+
+<style scoped>
+.rotate-180 {
+  transform: rotate(180deg);
+}
+</style>

@@ -9,6 +9,7 @@ Firestore Sync:
 - Firestore failures are logged but never block the API response
 """
 
+from datetime import datetime
 from typing import Optional
 from uuid import UUID
 
@@ -17,7 +18,8 @@ from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from core.auth import get_current_user, get_current_org
+from core.auth import get_current_user, get_current_org, require_role
+from core.audit import log_action, AuditAction
 from core.firestore import sync_evaluation_to_firestore, delete_evaluation_from_firestore
 from db.session import get_db
 from models.user import User
@@ -157,6 +159,24 @@ async def create_evaluation(
 
     db.add(evaluation)
     await db.flush()
+
+    # Log the action
+    await log_action(
+        db=db,
+        action=AuditAction.EVALUATION_CREATED,
+        entity_type="evaluation",
+        entity_id=str(evaluation.id),
+        user_id=str(user.id),
+        organisation_id=str(org_role.organisation_id),
+        after_state={
+            "title": evaluation.title,
+            "target_url": evaluation.target_url,
+            "wcag_version": evaluation.wcag_version,
+            "conformance_level": evaluation.conformance_level,
+            "audit_type": evaluation.audit_type,
+            "status": evaluation.status,
+        },
+    )
 
     # Build response
     response = EvaluationResponse(
@@ -305,14 +325,38 @@ async def update_evaluation(
             detail="Cannot update a deleted evaluation project",
         )
 
-    # Update allowed fields
+    # Capture before state for audit logging
     update_data = data.model_dump(exclude_unset=True)
+    before_state = {}
+    for field in update_data.keys():
+        if hasattr(evaluation, field):
+            before_state[field] = getattr(evaluation, field)
 
+    # Update allowed fields
     for field, value in update_data.items():
         if hasattr(evaluation, field):
             setattr(evaluation, field, value)
 
+    evaluation.updated_at = datetime.utcnow()
     await db.flush()
+
+    # Capture after state
+    after_state = {}
+    for field in update_data.keys():
+        if hasattr(evaluation, field):
+            after_state[field] = getattr(evaluation, field)
+
+    # Log the action
+    await log_action(
+        db=db,
+        action=AuditAction.EVALUATION_UPDATED,
+        entity_type="evaluation",
+        entity_id=str(evaluation.id),
+        user_id=str(user.id),
+        organisation_id=str(evaluation.organisation_id),
+        before_state=before_state,
+        after_state=after_state,
+    )
 
     # Build response
     response = EvaluationResponse(
@@ -353,7 +397,7 @@ async def update_evaluation(
 async def delete_evaluation(
     evaluation_id: UUID,
     background_tasks: BackgroundTasks,
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_role("owner")),
     db: AsyncSession = Depends(get_db),
 ) -> None:
     """Delete an evaluation project (soft delete).
@@ -401,9 +445,161 @@ async def delete_evaluation(
             detail="Only organisation owners can delete evaluation projects",
         )
 
+    # Capture before state for audit log
+    before_state = {
+        "status": evaluation.status,
+        "title": evaluation.title,
+    }
+
     # Soft delete - set status to DELETED
     evaluation.status = "DELETED"
+    evaluation.updated_at = datetime.utcnow()
     await db.flush()
+
+    # Log the action
+    await log_action(
+        db=db,
+        action=AuditAction.EVALUATION_DELETED,
+        entity_type="evaluation",
+        entity_id=str(evaluation.id),
+        user_id=str(user.id),
+        organisation_id=str(evaluation.organisation_id),
+        before_state=before_state,
+        after_state={"status": "DELETED"},
+    )
 
     # Delete from Firestore as background task (fire-and-forget)
     background_tasks.add_task(delete_evaluation_from_firestore, str(evaluation_id))
+
+
+# Status transition rules
+STATUS_TRANSITIONS = {
+    "DRAFT": "SCOPING",
+    "SCOPING": "EXPLORING",
+    "SAMPLING": "AUDITING",
+    "REPORTING": "COMPLETE",
+}
+
+# Statuses that require dedicated workflow endpoints
+WORKFLOW_STATUSES = ["EXPLORING", "AUDITING"]
+
+
+@router.post("/{evaluation_id}/advance", response_model=EvaluationResponse)
+async def advance_evaluation_status(
+    evaluation_id: UUID,
+    background_tasks: BackgroundTasks,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> EvaluationResponse:
+    """Advance evaluation to the next logical status.
+
+    Status progression rules:
+    - DRAFT → SCOPING (always allowed)
+    - SCOPING → EXPLORING (always allowed - target_url is always set)
+    - SAMPLING → AUDITING (allowed when user confirms sample)
+    - REPORTING → COMPLETE (allowed when report is ready)
+
+    Other transitions (e.g., EXPLORING → SAMPLING) happen through
+    dedicated workflow endpoints (crawl completion, scan completion).
+
+    Args:
+        evaluation_id: UUID of the evaluation project
+        background_tasks: FastAPI BackgroundTasks for Firestore sync
+
+    Returns:
+        EvaluationResponse: Updated evaluation project
+
+    Raises:
+        HTTPException(404): If evaluation doesn't exist
+        HTTPException(403): If user doesn't have access
+        HTTPException(400): If transition is not allowed
+    """
+    org_ids = await _get_user_org_ids(user)
+
+    # Fetch evaluation
+    stmt = select(EvaluationProject).where(EvaluationProject.id == evaluation_id)
+    result = await db.execute(stmt)
+    evaluation = result.scalar_one_or_none()
+
+    if evaluation is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Evaluation project with ID '{evaluation_id}' not found",
+        )
+
+    # Check organisation access
+    if evaluation.organisation_id not in org_ids:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have access to this evaluation project",
+        )
+
+    current_status = evaluation.status
+
+    # Check if status can be advanced via this endpoint
+    if current_status in WORKFLOW_STATUSES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Cannot advance from {current_status}. Use the dedicated workflow endpoints.",
+        )
+
+    if current_status not in STATUS_TRANSITIONS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Cannot advance from {current_status}. Evaluation may be complete or deleted.",
+        )
+
+    # Get the next status
+    next_status = STATUS_TRANSITIONS[current_status]
+    before_state = {"status": current_status}
+
+    # Update status
+    evaluation.status = next_status
+    evaluation.updated_at = datetime.utcnow()
+    await db.flush()
+
+    # Log the action
+    await log_action(
+        db=db,
+        action=AuditAction.EVALUATION_ADVANCED,
+        entity_type="evaluation",
+        entity_id=str(evaluation.id),
+        user_id=str(user.id),
+        organisation_id=str(evaluation.organisation_id),
+        before_state=before_state,
+        after_state={"status": next_status},
+    )
+
+    # Build response
+    response = EvaluationResponse(
+        id=evaluation.id,
+        organisation_id=evaluation.organisation_id,
+        created_by=evaluation.created_by,
+        title=evaluation.title,
+        target_url=evaluation.target_url,
+        wcag_version=evaluation.wcag_version,
+        conformance_level=evaluation.conformance_level,
+        audit_type=evaluation.audit_type,
+        status=evaluation.status,
+        scope_config=evaluation.scope_config,
+        created_at=evaluation.created_at,
+        updated_at=evaluation.updated_at,
+    )
+
+    # Sync to Firestore as background task (fire-and-forget)
+    evaluation_dict = {
+        "id": evaluation.id,
+        "organisation_id": evaluation.organisation_id,
+        "created_by": evaluation.created_by,
+        "title": evaluation.title,
+        "target_url": evaluation.target_url,
+        "wcag_version": evaluation.wcag_version,
+        "conformance_level": evaluation.conformance_level,
+        "audit_type": evaluation.audit_type,
+        "status": evaluation.status,
+        "created_at": evaluation.created_at,
+        "updated_at": evaluation.updated_at,
+    }
+    background_tasks.add_task(sync_evaluation_to_firestore, evaluation_dict)
+
+    return response

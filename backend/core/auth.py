@@ -86,13 +86,13 @@ async def get_current_user(
         email_stmt = select(User).where(User.email == email)
         email_result = await db.execute(email_stmt)
         existing_user = email_result.scalar_one_or_none()
-        
+
         if existing_user:
             # Update firebase_uid for existing user
             existing_user.firebase_uid = firebase_uid
             existing_user.last_login_at = datetime.utcnow()
             await db.flush()
-            
+
             # Reload with relationships
             stmt = (
                 select(User)
@@ -117,12 +117,12 @@ async def get_current_user(
             org_stmt = select(Organisation).where(Organisation.id == default_org_id)
             org_result = await db.execute(org_stmt)
             org = org_result.scalar_one_or_none()
-            
+
             if not org:
                 org = Organisation(id=default_org_id, name='Default Organisation', slug='default')
                 db.add(org)
                 await db.flush()
-            
+
             # Assign user to default org as owner
             user_org_role = UserOrganisationRole(
                 user_id=user.id,
@@ -200,32 +200,116 @@ async def get_current_org(
     return user, evaluation.organisation, org_role.role
 
 
-async def require_role(
-    required_roles: list[str],
-    user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-) -> User:
-    """Dependency factory for role-based access control.
+def require_role(*allowed_roles: str):
+    """
+    Dependency factory for role-based access control.
 
-    This is a helper function - use it to create specific role dependencies.
+    Creates a FastAPI dependency that checks if the current user has one of
+    the allowed roles in any of their organisations.
+
+    Usage:
+        @router.delete("/resource/{id}")
+        async def delete_resource(
+            user: User = Depends(require_role("owner")),
+            ...
+        ):
+            ...
+
+        @router.post("/resource")
+        async def create_resource(
+            user: User = Depends(require_role("owner", "auditor")),
+            ...
+        ):
+            ...
 
     Args:
-        required_roles: List of roles that are allowed access
-        user: Current authenticated user
-        db: Async database session
+        *allowed_roles: Role names that are permitted (e.g., "owner", "auditor", "reviewer", "viewer")
 
     Returns:
-        User if they have one of the required roles
-
-    Raises:
-        HTTPException(403): If user doesn't have required role
+        FastAPI dependency function
     """
-    # Check if user has any of the required roles in any organisation
-    for role_entry in user.organisation_roles:
-        if role_entry.role in required_roles:
-            return user
+    async def check_role(
+        current_user: User = Depends(get_current_user),
+    ) -> User:
+        """Check if the user has one of the allowed roles."""
+        # Check if user has any of the required roles in any organisation
+        for role_entry in current_user.organisation_roles:
+            if role_entry.role in allowed_roles:
+                return current_user
 
-    raise HTTPException(
-        status_code=status.HTTP_403_FORBIDDEN,
-        detail=f"This action requires one of the following roles: {', '.join(required_roles)}",
-    )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Insufficient permissions. This action requires one of the following roles: {', '.join(allowed_roles)}",
+        )
+
+    return check_role
+
+
+def require_org_role(*allowed_roles: str):
+    """
+    Dependency factory for role-based access control scoped to an evaluation's organisation.
+
+    Similar to require_role, but checks the user's role specifically in the
+    organisation that owns the evaluation being accessed.
+
+    Usage:
+        @router.patch("/evaluations/{evaluation_id}/findings/{finding_id}")
+        async def update_finding(
+            evaluation_id: UUID,
+            finding_id: UUID,
+            user: User = Depends(require_org_role("owner", "auditor", "reviewer")),
+            ...
+        ):
+            ...
+
+    Args:
+        *allowed_roles: Role names that are permitted
+
+    Returns:
+        FastAPI dependency function that returns (User, Organisation, role)
+    """
+    async def check_org_role(
+        evaluation_id: UUID = Path(..., description="Evaluation project ID"),
+        current_user: User = Depends(get_current_user),
+        db: AsyncSession = Depends(get_db),
+    ) -> Tuple[User, Organisation, str]:
+        """Check if the user has one of the allowed roles in the evaluation's organisation."""
+        # Fetch the evaluation project
+        stmt = (
+            select(EvaluationProject)
+            .options(selectinload(EvaluationProject.organisation))
+            .where(EvaluationProject.id == evaluation_id)
+        )
+        result = await db.execute(stmt)
+        evaluation = result.scalar_one_or_none()
+
+        if evaluation is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Evaluation project with ID '{evaluation_id}' not found",
+            )
+
+        # Check if user is a member of the evaluation's organisation
+        org_role = None
+        for role_entry in current_user.organisation_roles:
+            if role_entry.organisation_id == evaluation.organisation_id:
+                org_role = role_entry
+                break
+
+        if org_role is None:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You do not have access to this evaluation project",
+            )
+
+        # Check if user's role is in the allowed roles
+        if org_role.role not in allowed_roles:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Insufficient permissions. This action requires one of the following roles: {', '.join(allowed_roles)}",
+            )
+
+        return current_user, evaluation.organisation, org_role.role
+
+    return check_org_role
+

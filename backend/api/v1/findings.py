@@ -14,7 +14,8 @@ from sqlalchemy import select, func, and_, case
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from core.auth import get_current_user
+from core.auth import get_current_user, require_role
+from core.audit import log_action, AuditAction
 from core.config import settings
 from db.session import get_db
 from models.evaluation import EvaluationProject
@@ -306,11 +307,13 @@ async def get_findings_summary(
 async def create_manual_finding(
     evaluation_id: UUID,
     data: FindingCreate,
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_role("owner", "auditor")),
     db: AsyncSession = Depends(get_db),
 ) -> FindingResponse:
     """
     Create a manual finding for an evaluation.
+
+    Requires owner or auditor role.
 
     Args:
         evaluation_id: The evaluation UUID
@@ -365,6 +368,21 @@ async def create_manual_finding(
     db.add(finding)
     await db.flush()
     await db.refresh(finding)
+
+    # Log the action
+    await log_action(
+        db=db,
+        action=AuditAction.FINDING_CREATED,
+        entity_type="finding",
+        entity_id=str(finding.id),
+        user_id=str(user.id),
+        organisation_id=str(evaluation.organisation_id),
+        after_state={
+            "source": "manual",
+            "severity": data.severity,
+            "description": data.description[:200] if data.description else None,
+        },
+    )
 
     return build_finding_response(
         finding=finding,
@@ -436,12 +454,13 @@ async def get_finding(
 async def update_finding(
     finding_id: UUID,
     data: FindingUpdate,
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_role("owner", "auditor", "reviewer")),
     db: AsyncSession = Depends(get_db),
 ) -> FindingResponse:
     """
     Update a finding's status, reviewer note, or remediation.
 
+    Requires owner, auditor, or reviewer role.
     Sets reviewed_by to the current user and updates updated_at.
 
     Args:
@@ -478,8 +497,16 @@ async def update_finding(
             detail="You do not have access to this finding",
         )
 
+    # Capture before state for audit logging
+    before_state = {
+        "status": finding.status,
+        "reviewer_note": finding.reviewer_note,
+    }
+
     # Apply updates
+    new_status = None
     if data.status is not None:
+        new_status = data.status
         finding.status = data.status
 
     if data.reviewer_note is not None:
@@ -492,8 +519,48 @@ async def update_finding(
     finding.reviewed_by = user.id
     finding.updated_at = datetime.utcnow()
 
-    await db.flush()
-    await db.refresh(finding)
+    # Determine audit action based on status change
+    if new_status == "CONFIRMED":
+        action = AuditAction.FINDING_CONFIRMED
+    elif new_status == "DISMISSED":
+        action = AuditAction.FINDING_DISMISSED
+    elif new_status == "OPEN":
+        action = AuditAction.FINDING_REOPENED
+    else:
+        action = AuditAction.FINDING_UPDATED
+
+    # Capture after state
+    after_state = {
+        "status": finding.status,
+        "reviewer_note": finding.reviewer_note,
+    }
+
+    # Log the action (added to session but not committed yet)
+    await log_action(
+        db=db,
+        action=action,
+        entity_type="finding",
+        entity_id=str(finding.id),
+        user_id=str(user.id),
+        organisation_id=str(finding.evaluation.organisation_id),
+        before_state=before_state,
+        after_state=after_state,
+    )
+
+    # Commit both the finding update and audit log together
+    await db.commit()
+
+    # Re-fetch with relationships after commit
+    stmt = (
+        select(Finding)
+        .options(
+            selectinload(Finding.page),
+            selectinload(Finding.criterion),
+        )
+        .where(Finding.id == finding_id)
+    )
+    result = await db.execute(stmt)
+    finding = result.scalar_one()
 
     return build_finding_response(
         finding=finding,

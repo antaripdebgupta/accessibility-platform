@@ -12,6 +12,14 @@ from schemas.evaluation import (
     EvaluationResponse,
     EvaluationListItem,
 )
+from schemas.report import (
+    ReportCreate,
+    ReportResponse,
+    ReportListResponse,
+    ReportGenerateResponse,
+    VerdictResult,
+    FailedCriterionDetail,
+)
 
 __all__ = [
     # Common
@@ -25,4 +33,11 @@ __all__ = [
     "EvaluationUpdate",
     "EvaluationResponse",
     "EvaluationListItem",
+    # Report
+    "ReportCreate",
+    "ReportResponse",
+    "ReportListResponse",
+    "ReportGenerateResponse",
+    "VerdictResult",
+    "FailedCriterionDetail",
 ]

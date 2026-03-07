@@ -12,7 +12,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.auth import get_current_user
+from core.auth import get_current_user, require_role
 from db.session import get_db
 from models.evaluation import EvaluationProject
 from models.page import Page
@@ -78,12 +78,13 @@ async def get_evaluation_for_user(
 async def start_scan(
     evaluation_id: UUID,
     request: ScanRequest = ScanRequest(),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_role("owner", "auditor")),
     db: AsyncSession = Depends(get_db),
 ) -> ScanResponse:
     """
     Start an accessibility scan for an evaluation.
 
+    Requires owner or auditor role.
     Triggers an async Celery task to run axe-core scans on pages.
 
     Args:
@@ -96,7 +97,7 @@ async def start_scan(
 
     Raises:
         404: Evaluation not found
-        403: User doesn't have access
+        403: User doesn't have access or insufficient permissions
         400: Evaluation not in valid state for scanning
     """
     evaluation = await get_evaluation_for_user(evaluation_id, user, db)

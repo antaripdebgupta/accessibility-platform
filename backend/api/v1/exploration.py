@@ -16,7 +16,7 @@ from pydantic import BaseModel
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.auth import get_current_user
+from core.auth import get_current_user, require_role
 from db.session import get_db
 from models.evaluation import EvaluationProject
 from models.page import Page
@@ -124,12 +124,13 @@ async def get_evaluation_for_user(
 async def start_exploration(
     evaluation_id: UUID,
     request: ExploreRequest,
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_role("owner", "auditor")),
     db: AsyncSession = Depends(get_db),
 ) -> ExploreResponse:
     """
     Start website exploration/crawling for an evaluation.
 
+    Requires owner or auditor role.
     Triggers an async Celery task to crawl the target website
     and discover pages for accessibility evaluation.
 
@@ -142,7 +143,7 @@ async def start_exploration(
 
     Raises:
         404: Evaluation not found
-        403: User doesn't have access
+        403: User doesn't have access or insufficient permissions
         409: Crawl already in progress
     """
     evaluation = await get_evaluation_for_user(evaluation_id, user, db)
