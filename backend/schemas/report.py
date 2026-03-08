@@ -5,6 +5,7 @@ Schemas for accessibility conformance reports including:
 - Report creation requests
 - Report responses with download URLs
 - Verdict calculations
+- Failed criteria details
 """
 
 from datetime import datetime
@@ -14,12 +15,25 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field
 
 
+class FindingDetail(BaseModel):
+    """Detail about a finding for a failed criterion."""
+
+    description: str
+    severity: str
+    page_url: str
+    css_selector: str = ""
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class FailedCriterionDetail(BaseModel):
     """Detail about a failed WCAG criterion."""
 
     criterion_code: str
     criterion_name: str
+    criterion_level: str
     finding_count: int
+    findings: list[FindingDetail] = []
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -31,8 +45,17 @@ class VerdictResult(BaseModel):
         verdict: Overall conformance verdict
         criteria_passed: Number of criteria that passed
         criteria_failed: Number of criteria that failed
+        criteria_na: Number of not applicable criteria
         failed_criteria: List of failed criteria with details
         total_findings: Total number of confirmed findings
+        confirmed_findings: Count of confirmed findings
+        dismissed_findings: Count of dismissed findings
+        pages_scanned: Number of pages with completed scans
+        evaluation_title: Title of the evaluation
+        target_url: Target website URL
+        wcag_version: WCAG version
+        conformance_level: Target conformance level
+        generated_at: ISO format timestamp
     """
 
     verdict: str = Field(
@@ -41,8 +64,17 @@ class VerdictResult(BaseModel):
     )
     criteria_passed: int = 0
     criteria_failed: int = 0
+    criteria_na: int = 0
     failed_criteria: list[FailedCriterionDetail] = []
     total_findings: int = 0
+    confirmed_findings: int = 0
+    dismissed_findings: int = 0
+    pages_scanned: int = 0
+    evaluation_title: str = ""
+    target_url: str = ""
+    wcag_version: str = "2.1"
+    conformance_level: str = "AA"
+    generated_at: str = ""
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -115,6 +147,6 @@ class ReportGenerateResponse(BaseModel):
 
     task_id: str
     status: str
-    message: str
+    report_types: list[str] = []
 
     model_config = ConfigDict(from_attributes=True)

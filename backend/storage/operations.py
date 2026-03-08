@@ -7,7 +7,7 @@ Provides functions for uploading, downloading, and managing files in MinIO.
 import io
 from datetime import timedelta
 
-from storage.client import get_minio_client
+from storage.client import get_minio_client, get_minio_external_client
 from core.config import settings
 from core.logging import get_logger
 
@@ -93,6 +93,10 @@ def get_presigned_url(
     """
     Generate a presigned GET URL for an object.
 
+    Uses the internal MinIO client to generate the URL (since it can reach MinIO),
+    then rewrites the URL to use the nginx /storage/ proxy endpoint.
+    The nginx proxy sets the Host header to minio:9000 to match the signature.
+
     Args:
         bucket: The bucket name
         key: The object key
@@ -102,6 +106,7 @@ def get_presigned_url(
         str: The presigned URL, or empty string on failure (never raises)
     """
     try:
+        # Use internal client for URL generation (can reach MinIO from Docker)
         client = get_minio_client()
 
         url = client.presigned_get_object(
@@ -110,16 +115,12 @@ def get_presigned_url(
             expires=timedelta(hours=expires_hours),
         )
 
-        # Replace internal Docker endpoint with external endpoint for browser access
-        if settings.minio_endpoint != settings.minio_external_endpoint:
-            url = url.replace(
-                f"http://{settings.minio_endpoint}",
-                f"http://{settings.minio_external_endpoint}",
-            )
-            url = url.replace(
-                f"https://{settings.minio_endpoint}",
-                f"https://{settings.minio_external_endpoint}",
-            )
+        # Rewrite URL to use nginx /storage/ proxy instead of direct MinIO access
+        # The nginx proxy will forward to minio:9000 with the correct Host header
+        url = url.replace(
+            f"http://{settings.minio_endpoint}/",
+            f"http://{settings.minio_external_endpoint}/storage/"
+        )
 
         logger.debug(
             "minio_presigned_url_generated",

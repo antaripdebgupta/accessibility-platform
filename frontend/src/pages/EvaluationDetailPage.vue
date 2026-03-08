@@ -75,6 +75,19 @@
         <StepIndicator :current-status="evaluation.status" />
       </div>
 
+      <!-- Compact Verdict Banner (shown when COMPLETE) -->
+      <div v-if="showVerdictBanner" class="mb-8">
+        <VerdictBanner
+          :verdict="latestReport.conformance_verdict || 'CANNOT_DETERMINE'"
+          :criteria-failed="latestReport.criteria_failed || 0"
+          :criteria-total="
+            (latestReport.criteria_passed || 0) +
+            (latestReport.criteria_failed || 0)
+          "
+          :compact="true"
+        />
+      </div>
+
       <!-- Stats Section (always shown) -->
       <div class="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-4">
         <div class="rounded-lg border border-gray-200 bg-white p-6">
@@ -252,7 +265,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 
 import LoadingSpinner from '../components/common/LoadingSpinner.vue'
@@ -266,12 +279,14 @@ import api from '../lib/api'
 import { useAuthStore } from '../stores/auth'
 import { useEvaluationsStore } from '../stores/evaluations'
 import { useFindingsStore } from '../stores/findings'
+import { useReportsStore } from '../stores/reports'
 
 const route = useRoute()
 const router = useRouter()
 const authStore = useAuthStore()
 const evaluationsStore = useEvaluationsStore()
 const findingsStore = useFindingsStore()
+const reportsStore = useReportsStore()
 
 const error = ref('')
 const activityLogExpanded = ref(false)
@@ -289,6 +304,18 @@ const evaluation = computed(() => evaluationsStore.current)
 
 const canDelete = computed(() => {
   return evaluation.value && evaluation.value.status !== 'DELETED'
+})
+
+const latestReport = computed(() => {
+  return reportsStore.latestFullReport || reportsStore.reports[0] || null
+})
+
+const showVerdictBanner = computed(() => {
+  return (
+    evaluation.value &&
+    evaluation.value.status === 'COMPLETE' &&
+    latestReport.value
+  )
 })
 
 // Methods
@@ -325,6 +352,17 @@ async function fetchStats() {
   }
 }
 
+async function fetchLatestReport() {
+  if (!evaluation.value) return
+  if (evaluation.value.status !== 'COMPLETE') return
+
+  try {
+    await reportsStore.fetchLatest(evaluation.value.id)
+  } catch (err) {
+    console.error('Failed to fetch latest report:', err)
+  }
+}
+
 async function handleDelete() {
   const confirmed = window.confirm('Are you sure? This cannot be undone.')
 
@@ -350,9 +388,14 @@ onMounted(async () => {
   try {
     await evaluationsStore.fetchOne(id)
     await fetchStats()
+    await fetchLatestReport()
   } catch (err) {
     error.value = err.message || 'Failed to load evaluation'
   }
+})
+
+onUnmounted(() => {
+  reportsStore.clearReports()
 })
 </script>
 

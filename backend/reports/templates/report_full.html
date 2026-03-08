@@ -1,0 +1,144 @@
+{% extends "report_base.html" %} {% block content %}
+
+<!-- Section 1: Evaluation Information -->
+<h2>Evaluation Information</h2>
+<table class="info-table">
+  <tr>
+    <td>Website</td>
+    <td><a href="{{ verdict.target_url }}">{{ verdict.target_url }}</a></td>
+  </tr>
+  <tr>
+    <td>Evaluation Title</td>
+    <td>{{ verdict.evaluation_title }}</td>
+  </tr>
+  <tr>
+    <td>WCAG Version</td>
+    <td>{{ verdict.wcag_version }}</td>
+  </tr>
+  <tr>
+    <td>Conformance Level</td>
+    <td>Level {{ verdict.conformance_level }}</td>
+  </tr>
+  <tr>
+    <td>Pages Scanned</td>
+    <td>{{ verdict.pages_scanned }}</td>
+  </tr>
+  <tr>
+    <td>Report Date</td>
+    <td>{{ verdict.generated_at }}</td>
+  </tr>
+</table>
+
+<!-- Section 2: Verdict Banner -->
+<div class="verdict-{{ verdict.verdict | lower | replace('_', '-') }}">
+  <h2>{{ verdict_label }}</h2>
+  <p>{{ verdict_description }}</p>
+</div>
+
+<!-- Section 3: Summary Statistics -->
+<h2>Summary Statistics</h2>
+<div class="stats-grid">
+  <div class="stats-grid-row">
+    <div class="stat-cell">
+      <div class="stat-number">{{ verdict.total_findings }}</div>
+      <div class="stat-label">Total Issues Found</div>
+    </div>
+    <div class="stat-cell">
+      <div class="stat-number fail">{{ verdict.criteria_failed }}</div>
+      <div class="stat-label">Criteria Failed</div>
+    </div>
+    <div class="stat-cell">
+      <div class="stat-number pass">{{ verdict.criteria_passed }}</div>
+      <div class="stat-label">Criteria Passed</div>
+    </div>
+    <div class="stat-cell">
+      <div class="stat-number">{{ verdict.pages_scanned }}</div>
+      <div class="stat-label">Pages Scanned</div>
+    </div>
+  </div>
+</div>
+
+<!-- Additional Stats Row -->
+<table class="info-table" style="margin-top: 12px">
+  <tr>
+    <td>Confirmed Findings</td>
+    <td>{{ verdict.confirmed_findings }}</td>
+  </tr>
+  <tr>
+    <td>Dismissed Findings</td>
+    <td>{{ verdict.dismissed_findings }}</td>
+  </tr>
+</table>
+
+<!-- Section 4: Failed Criteria -->
+{% if verdict.failed_criteria %}
+<h2>Failed Criteria Details</h2>
+<p style="font-size: 11px; color: #6b7280; margin-bottom: 16px">
+  The following WCAG {{ verdict.wcag_version }} Level {{
+  verdict.conformance_level }} success criteria failed during evaluation.
+</p>
+
+{% for criterion in verdict.failed_criteria %}
+<div class="criterion-section">
+  <h3>
+    {{ criterion.criterion_code }} — {{ criterion.criterion_name }}
+    <span class="level-badge level-{{ criterion.criterion_level | lower }}"
+      >Level {{ criterion.criterion_level }}</span
+    >
+  </h3>
+  <p class="criterion-count">{{ criterion.finding_count }} issue(s) found</p>
+
+  {% for finding in criterion.findings %}
+  <div class="finding-item severity-{{ finding.severity }}">
+    <div class="finding-header">
+      <span class="severity-{{ finding.severity }}"
+        >{{ finding.severity | capitalize }}</span
+      >
+    </div>
+    <div class="finding-description">{{ finding.description }}</div>
+    <div class="finding-meta">Page: {{ finding.page_url }}</div>
+    {% if finding.css_selector %}
+    <div class="code-block">{{ finding.css_selector }}</div>
+    {% endif %}
+  </div>
+  {% endfor %}
+</div>
+{% endfor %} {% else %}
+<!-- No Failed Criteria -->
+<h2>Criteria Analysis</h2>
+<div
+  style="
+    background-color: #dcfce7;
+    border-radius: 8px;
+    padding: 20px;
+    text-align: center;
+    margin: 20px 0;
+  "
+>
+  <p style="margin: 0; color: #166534; font-size: 14px; font-weight: 600">
+    ✓ All evaluated criteria passed
+  </p>
+  <p style="margin: 8px 0 0; color: #166534; font-size: 12px">
+    No accessibility violations were found for the {{ verdict.criteria_passed }}
+    criteria evaluated.
+  </p>
+</div>
+{% endif %}
+
+<!-- Section 5: Methodology Note -->
+<div class="methodology-note">
+  <h4>Methodology</h4>
+  <p>
+    This report was produced using the W3C Website Accessibility Conformance
+    Evaluation Methodology (WCAG-EM). Automated testing was performed using
+    axe-core v4.9. Automated testing cannot detect all accessibility issues —
+    manual testing is recommended to complement these results.
+  </p>
+  <p style="margin-top: 12px">
+    <strong>Important:</strong> This evaluation covers only the pages that were
+    scanned. A complete accessibility audit should include comprehensive manual
+    testing by accessibility experts and testing with assistive technologies.
+  </p>
+</div>
+
+{% endblock %}

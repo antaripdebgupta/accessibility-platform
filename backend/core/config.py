@@ -39,7 +39,7 @@ class Settings(BaseSettings):
 
     # MinIO
     minio_endpoint: str = "minio:9000"
-    minio_external_endpoint: str = "localhost:9000"  # External endpoint for browser access
+    minio_external_endpoint: str = "localhost"  # External endpoint via nginx proxy
     minio_access_key: str = "minioadmin"
     minio_secret_key: str = "minioadmin"
     minio_bucket_reports: str = "reports"

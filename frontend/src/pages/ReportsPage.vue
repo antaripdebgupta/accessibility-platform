@@ -1,40 +1,18 @@
 <template>
   <AppLayout>
-    <PageHeader
-      title="Reports"
-      subtitle="View and download accessibility conformance reports"
-      :back-to="{ name: 'EvaluationDetail', params: { id: evaluationId } }"
-    />
+    <!-- Loading State -->
+    <div
+      v-if="evaluationsStore.loading && !evaluation"
+      class="flex items-center justify-center py-24"
+    >
+      <LoadingSpinner size="lg" />
+    </div>
 
-    <!-- Ready to Generate Card -->
-    <div class="rounded-lg border border-gray-200 bg-white p-8">
-      <div class="text-center">
-        <!-- Status Badge -->
-        <div
-          class="mb-4 inline-flex items-center rounded-full bg-green-100 px-4 py-1.5"
-        >
-          <svg
-            class="mr-1.5 h-4 w-4 text-green-600"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-            aria-hidden="true"
-          >
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              stroke-width="2"
-              d="M5 13l4 4L19 7"
-            />
-          </svg>
-          <span class="text-sm font-medium text-green-700"
-            >Ready to Generate</span
-          >
-        </div>
-
-        <!-- Icon -->
+    <!-- Error State -->
+    <div v-else-if="error" class="mx-auto max-w-2xl py-16">
+      <div class="rounded-lg border border-red-200 bg-red-50 p-6 text-center">
         <svg
-          class="mx-auto h-16 w-16 text-gray-400"
+          class="mx-auto h-12 w-12 text-red-400"
           fill="none"
           stroke="currentColor"
           viewBox="0 0 24 24"
@@ -43,152 +21,674 @@
           <path
             stroke-linecap="round"
             stroke-linejoin="round"
-            stroke-width="1.5"
-            d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+            stroke-width="2"
+            d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
           />
         </svg>
-
-        <h3 class="mt-4 text-lg font-medium text-gray-900">
-          WCAG Conformance Reports
+        <h3 class="mt-4 text-lg font-medium text-red-800">
+          {{ error }}
         </h3>
-        <p class="mx-auto mt-2 max-w-md text-sm text-gray-500">
-          Once findings are reviewed, you can generate comprehensive
-          accessibility conformance reports in multiple formats including PDF,
-          HTML, and JSON.
-        </p>
-
-        <!-- Feature List -->
-        <div class="mx-auto mt-6 max-w-sm">
-          <ul class="space-y-2 text-left text-sm text-gray-600">
-            <li class="flex items-start">
-              <svg
-                class="mr-2 mt-0.5 h-4 w-4 flex-shrink-0 text-indigo-500"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  stroke-width="2"
-                  d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
-                />
-              </svg>
-              VPAT/WCAG 2.1 conformance level summary
-            </li>
-            <li class="flex items-start">
-              <svg
-                class="mr-2 mt-0.5 h-4 w-4 flex-shrink-0 text-indigo-500"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  stroke-width="2"
-                  d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
-                />
-              </svg>
-              Per-criterion pass/fail breakdown
-            </li>
-            <li class="flex items-start">
-              <svg
-                class="mr-2 mt-0.5 h-4 w-4 flex-shrink-0 text-indigo-500"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  stroke-width="2"
-                  d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
-                />
-              </svg>
-              Remediation recommendations
-            </li>
-            <li class="flex items-start">
-              <svg
-                class="mr-2 mt-0.5 h-4 w-4 flex-shrink-0 text-indigo-500"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  stroke-width="2"
-                  d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
-                />
-              </svg>
-              Export in PDF, HTML, and JSON formats
-            </li>
-          </ul>
-        </div>
-
-        <!-- Action Buttons -->
-        <div class="mt-8 flex items-center justify-center space-x-4">
-          <RouterLink
-            :to="{ name: 'Findings', params: { id: evaluationId } }"
-            class="inline-flex items-center rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
-          >
-            <svg
-              class="-ml-0.5 mr-1.5 h-4 w-4"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-              aria-hidden="true"
-            >
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="2"
-                d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"
-              />
-            </svg>
-            Review Findings
-          </RouterLink>
-          <button
-            type="button"
-            disabled
-            class="inline-flex items-center rounded-md bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            <svg
-              class="-ml-0.5 mr-1.5 h-4 w-4"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-              aria-hidden="true"
-            >
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="2"
-                d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
-              />
-            </svg>
-            Generate Report (Coming Soon)
-          </button>
-        </div>
-
-        <!-- Coming in Day 7 notice -->
-        <p class="mt-6 text-xs text-gray-400">
-          Report generation will be available after findings review is complete.
-        </p>
+        <RouterLink
+          to="/dashboard"
+          class="mt-4 inline-flex items-center rounded-md bg-red-100 px-4 py-2 text-sm font-medium text-red-700 hover:bg-red-200"
+        >
+          Return to Dashboard
+        </RouterLink>
       </div>
     </div>
+
+    <!-- Main Content -->
+    <template v-else-if="evaluation">
+      <!-- Page Header -->
+      <PageHeader
+        title="Conformance Report"
+        :subtitle="evaluation.title"
+        :back-to="{ name: 'EvaluationDetail', params: { id: evaluationId } }"
+      >
+        <StatusBadge :status="evaluation.status" />
+      </PageHeader>
+
+      <!-- State A: Not Ready -->
+      <div
+        v-if="!isReadyToGenerate && !reportsStore.hasReports"
+        class="rounded-lg border border-yellow-200 bg-yellow-50 p-8"
+      >
+        <div class="text-center">
+          <svg
+            class="mx-auto h-16 w-16 text-yellow-500"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+            aria-hidden="true"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="1.5"
+              d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
+            />
+          </svg>
+          <h3 class="mt-4 text-xl font-semibold text-yellow-800">
+            Evaluation Not Ready
+          </h3>
+          <p class="mx-auto mt-2 max-w-md text-sm text-yellow-700">
+            Complete the scan and review your findings before generating a
+            report. Current status: {{ evaluation.status }}
+          </p>
+          <div class="mt-6 flex items-center justify-center space-x-4">
+            <RouterLink
+              :to="`/evaluations/${evaluationId}/findings`"
+              class="inline-flex items-center rounded-md bg-yellow-600 px-4 py-2 text-sm font-semibold text-white hover:bg-yellow-500"
+            >
+              Go to Findings →
+            </RouterLink>
+            <RouterLink
+              :to="`/evaluations/${evaluationId}/explore`"
+              class="inline-flex items-center rounded-md border border-yellow-600 bg-white px-4 py-2 text-sm font-semibold text-yellow-700 hover:bg-yellow-50"
+            >
+              Go to Scan →
+            </RouterLink>
+          </div>
+        </div>
+      </div>
+
+      <!-- State B: Ready to Generate -->
+      <div
+        v-else-if="isReadyToGenerate && !reportsStore.hasReports && !generating"
+        class="space-y-6"
+      >
+        <div class="rounded-lg border border-gray-200 bg-white p-8">
+          <div class="text-center">
+            <!-- Status Badge -->
+            <div
+              class="mb-4 inline-flex items-center rounded-full bg-green-100 px-4 py-1.5"
+            >
+              <svg
+                class="mr-1.5 h-4 w-4 text-green-600"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+                aria-hidden="true"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M5 13l4 4L19 7"
+                />
+              </svg>
+              <span class="text-sm font-medium text-green-700"
+                >Ready to Generate</span
+              >
+            </div>
+
+            <!-- Icon -->
+            <svg
+              class="mx-auto h-16 w-16 text-gray-400"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+              aria-hidden="true"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="1.5"
+                d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+              />
+            </svg>
+
+            <h3 class="mt-4 text-lg font-medium text-gray-900">
+              WCAG Conformance Reports
+            </h3>
+            <p class="mx-auto mt-2 max-w-md text-sm text-gray-500">
+              Generate comprehensive accessibility conformance reports in
+              multiple formats.
+            </p>
+
+            <!-- Checklist -->
+            <div class="mx-auto mt-6 max-w-sm">
+              <ul class="space-y-2 text-left text-sm">
+                <li class="flex items-center text-green-600">
+                  <svg
+                    class="mr-2 h-4 w-4"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      stroke-width="2"
+                      d="M5 13l4 4L19 7"
+                    />
+                  </svg>
+                  Pages crawled
+                </li>
+                <li class="flex items-center text-green-600">
+                  <svg
+                    class="mr-2 h-4 w-4"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      stroke-width="2"
+                      d="M5 13l4 4L19 7"
+                    />
+                  </svg>
+                  Automated scan complete
+                </li>
+                <li class="flex items-center text-green-600">
+                  <svg
+                    class="mr-2 h-4 w-4"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      stroke-width="2"
+                      d="M5 13l4 4L19 7"
+                    />
+                  </svg>
+                  Findings reviewed
+                </li>
+                <li class="flex items-center text-gray-500">
+                  <svg
+                    class="mr-2 h-4 w-4"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      stroke-width="2"
+                      d="M13 5l7 7-7 7M5 5l7 7-7 7"
+                    />
+                  </svg>
+                  Report not yet generated
+                </li>
+              </ul>
+            </div>
+
+            <!-- Generate Button -->
+            <button
+              type="button"
+              class="mt-8 inline-flex items-center rounded-md bg-indigo-600 px-6 py-3 text-base font-semibold text-white shadow-sm hover:bg-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
+              @click="startGeneration"
+            >
+              Generate Report →
+            </button>
+
+            <!-- Options Toggle -->
+            <div class="mt-6">
+              <button
+                type="button"
+                class="text-sm text-indigo-600 hover:text-indigo-500"
+                @click="showOptions = !showOptions"
+              >
+                {{ showOptions ? 'Hide options' : 'Show options' }}
+              </button>
+
+              <div v-if="showOptions" class="mx-auto mt-4 max-w-sm text-left">
+                <div class="space-y-3 rounded-lg bg-gray-50 p-4">
+                  <label class="flex items-center">
+                    <input
+                      v-model="reportTypeOptions.full"
+                      type="checkbox"
+                      class="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                    />
+                    <span class="ml-2 text-sm text-gray-700"
+                      >Full PDF Report</span
+                    >
+                  </label>
+                  <label class="flex items-center">
+                    <input
+                      v-model="reportTypeOptions.earl"
+                      type="checkbox"
+                      class="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                    />
+                    <span class="ml-2 text-sm text-gray-700">EARL JSON-LD</span>
+                  </label>
+                  <label class="flex items-center">
+                    <input
+                      v-model="reportTypeOptions.csv"
+                      type="checkbox"
+                      class="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                    />
+                    <span class="ml-2 text-sm text-gray-700">CSV Export</span>
+                  </label>
+                  <hr class="my-2" />
+                  <label class="flex items-center">
+                    <input
+                      v-model="includeDismissed"
+                      type="checkbox"
+                      class="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                    />
+                    <span class="ml-2 text-sm text-gray-700"
+                      >Include dismissed findings</span
+                    >
+                  </label>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- State C: Generation in Progress -->
+      <div v-else-if="generating" class="space-y-6">
+        <div class="rounded-lg border border-indigo-200 bg-indigo-50 p-8">
+          <div class="text-center">
+            <LoadingSpinner size="lg" />
+
+            <h3 class="mt-4 text-lg font-medium text-indigo-900">
+              Generating your report...
+            </h3>
+
+            <!-- Progress Steps -->
+            <div class="mx-auto mt-6 max-w-sm text-left">
+              <ul class="space-y-3">
+                <li
+                  :class="[
+                    'flex items-center transition-colors',
+                    progressStep >= 1 ? 'text-indigo-700' : 'text-gray-400',
+                  ]"
+                >
+                  <svg
+                    v-if="progressStep > 1"
+                    class="mr-2 h-5 w-5 text-green-500"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      stroke-width="2"
+                      d="M5 13l4 4L19 7"
+                    />
+                  </svg>
+                  <LoadingSpinner v-else-if="progressStep === 1" size="sm" />
+                  <span v-else class="mr-2 h-5 w-5"></span>
+                  <span>Computing conformance verdict...</span>
+                </li>
+                <li
+                  :class="[
+                    'flex items-center transition-colors',
+                    progressStep >= 2 ? 'text-indigo-700' : 'text-gray-400',
+                  ]"
+                >
+                  <svg
+                    v-if="progressStep > 2"
+                    class="mr-2 h-5 w-5 text-green-500"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      stroke-width="2"
+                      d="M5 13l4 4L19 7"
+                    />
+                  </svg>
+                  <LoadingSpinner v-else-if="progressStep === 2" size="sm" />
+                  <span v-else class="mr-2 h-5 w-5"></span>
+                  <span>Rendering HTML template...</span>
+                </li>
+                <li
+                  :class="[
+                    'flex items-center transition-colors',
+                    progressStep >= 3 ? 'text-indigo-700' : 'text-gray-400',
+                  ]"
+                >
+                  <svg
+                    v-if="progressStep > 3"
+                    class="mr-2 h-5 w-5 text-green-500"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      stroke-width="2"
+                      d="M5 13l4 4L19 7"
+                    />
+                  </svg>
+                  <LoadingSpinner v-else-if="progressStep === 3" size="sm" />
+                  <span v-else class="mr-2 h-5 w-5"></span>
+                  <span>Generating PDF...</span>
+                </li>
+                <li
+                  :class="[
+                    'flex items-center transition-colors',
+                    progressStep >= 4 ? 'text-indigo-700' : 'text-gray-400',
+                  ]"
+                >
+                  <svg
+                    v-if="progressStep > 4"
+                    class="mr-2 h-5 w-5 text-green-500"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      stroke-width="2"
+                      d="M5 13l4 4L19 7"
+                    />
+                  </svg>
+                  <LoadingSpinner v-else-if="progressStep === 4" size="sm" />
+                  <span v-else class="mr-2 h-5 w-5"></span>
+                  <span>Uploading to storage...</span>
+                </li>
+              </ul>
+            </div>
+
+            <p class="mt-6 text-sm text-indigo-600">
+              This usually takes 15–30 seconds.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <!-- State D: Reports Exist -->
+      <div v-else-if="reportsStore.hasReports" class="space-y-8">
+        <!-- Verdict Banner -->
+        <VerdictBanner
+          v-if="latestReport"
+          :verdict="latestReport.conformance_verdict || 'CANNOT_DETERMINE'"
+          :criteria-failed="latestReport.criteria_failed || 0"
+          :criteria-total="
+            (latestReport.criteria_passed || 0) +
+            (latestReport.criteria_failed || 0)
+          "
+        />
+
+        <!-- Report Stats -->
+        <ReportStats
+          v-if="latestReport"
+          :pages-scanned="findingsStats.pagesScanned"
+          :total-findings="latestReport.total_findings || 0"
+          :criteria-failed="latestReport.criteria_failed || 0"
+          :criteria-passed="latestReport.criteria_passed || 0"
+        />
+
+        <!-- Download Reports Section -->
+        <div>
+          <h2 class="mb-4 text-lg font-semibold text-gray-900">
+            Download Reports
+          </h2>
+          <div class="space-y-4">
+            <ReportCard
+              v-for="report in reportsStore.reports"
+              :key="report.id"
+              :report="report"
+            />
+          </div>
+        </div>
+
+        <!-- Failed Criteria List -->
+        <div v-if="failedCriteria.length > 0">
+          <h2 class="mb-4 text-lg font-semibold text-gray-900">
+            Failed Criteria Details
+          </h2>
+          <FailedCriteriaList :failed-criteria="failedCriteria" />
+        </div>
+
+        <!-- Generate New Report Button -->
+        <div class="border-t border-gray-200 pt-6">
+          <button
+            type="button"
+            class="inline-flex items-center rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
+            @click="startGeneration"
+          >
+            <svg
+              class="-ml-0.5 mr-2 h-4 w-4"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+              />
+            </svg>
+            Generate New Report
+          </button>
+        </div>
+      </div>
+    </template>
   </AppLayout>
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
 
+import LoadingSpinner from '../components/common/LoadingSpinner.vue'
+import StatusBadge from '../components/common/StatusBadge.vue'
 import AppLayout from '../components/layout/AppLayout.vue'
 import PageHeader from '../components/layout/PageHeader.vue'
+import FailedCriteriaList from '../components/reports/FailedCriteriaList.vue'
+import ReportCard from '../components/reports/ReportCard.vue'
+import ReportStats from '../components/reports/ReportStats.vue'
+import VerdictBanner from '../components/reports/VerdictBanner.vue'
+import api from '../lib/api'
+import { useEvaluationsStore } from '../stores/evaluations'
+import { useFindingsStore } from '../stores/findings'
+import { useReportsStore } from '../stores/reports'
+import { useTasksStore } from '../stores/tasks'
 
 const route = useRoute()
+const evaluationsStore = useEvaluationsStore()
+const reportsStore = useReportsStore()
+const findingsStore = useFindingsStore()
+const tasksStore = useTasksStore()
 
+// State
+const error = ref('')
+const generating = ref(false)
+const showOptions = ref(false)
+const progressStep = ref(0)
+const reportTypeOptions = reactive({
+  full: true,
+  earl: true,
+  csv: true,
+})
+const includeDismissed = ref(false)
+const failedCriteria = ref([])
+const findingsStats = reactive({
+  pagesScanned: 0,
+})
+
+// Progress step timer
+let progressTimer = null
+
+// Computed
 const evaluationId = computed(() => route.params.id)
+const evaluation = computed(() => evaluationsStore.current)
+
+const isReadyToGenerate = computed(() => {
+  if (!evaluation.value) return false
+  return ['AUDITING', 'REPORTING', 'COMPLETE'].includes(evaluation.value.status)
+})
+
+const latestReport = computed(() => {
+  return reportsStore.latestFullReport || reportsStore.reports[0] || null
+})
+
+// Methods
+async function loadData() {
+  try {
+    await evaluationsStore.fetchOne(evaluationId.value)
+    await reportsStore.fetchReports(evaluationId.value)
+
+    // Fetch pages count
+    try {
+      const pagesResponse = await api.get(
+        `/evaluations/${evaluationId.value}/pages/summary`,
+      )
+      findingsStats.pagesScanned = pagesResponse.data.total_pages || 0
+    } catch {
+      findingsStats.pagesScanned = 0
+    }
+
+    // If we have reports, try to fetch failed criteria from findings
+    if (reportsStore.hasReports) {
+      await loadFailedCriteria()
+    }
+  } catch (err) {
+    error.value = err.message || 'Failed to load report data'
+  }
+}
+
+async function loadFailedCriteria() {
+  try {
+    // Fetch confirmed findings grouped by criteria
+    const response = await api.get(
+      `/evaluations/${evaluationId.value}/findings?status=CONFIRMED&limit=200`,
+    )
+
+    const findings = response.data.items || []
+
+    // Group by criterion
+    const criteriaMap = new Map()
+
+    for (const finding of findings) {
+      if (finding.criterion_code) {
+        if (!criteriaMap.has(finding.criterion_code)) {
+          criteriaMap.set(finding.criterion_code, {
+            criterion_code: finding.criterion_code,
+            criterion_name: finding.criterion_name || finding.criterion_code,
+            criterion_level: finding.criterion_level || 'AA',
+            finding_count: 0,
+            findings: [],
+          })
+        }
+
+        const criterion = criteriaMap.get(finding.criterion_code)
+        criterion.finding_count++
+        criterion.findings.push({
+          description: finding.description,
+          severity: finding.severity || 'moderate',
+          page_url: finding.page_url || '',
+          css_selector: finding.css_selector || '',
+        })
+      }
+    }
+
+    // Convert to array and sort
+    failedCriteria.value = Array.from(criteriaMap.values()).sort((a, b) =>
+      a.criterion_code.localeCompare(b.criterion_code),
+    )
+  } catch (err) {
+    console.error('Failed to load failed criteria:', err)
+    failedCriteria.value = []
+  }
+}
+
+async function startGeneration() {
+  generating.value = true
+  progressStep.value = 1
+
+  // Build report types array
+  const reportTypes = []
+  if (reportTypeOptions.full) reportTypes.push('full')
+  if (reportTypeOptions.earl) reportTypes.push('earl')
+  if (reportTypeOptions.csv) reportTypes.push('csv')
+
+  // If nothing selected, default to all
+  if (reportTypes.length === 0) {
+    reportTypes.push('full', 'earl', 'csv')
+  }
+
+  try {
+    const response = await reportsStore.generateReport(evaluationId.value, {
+      report_types: reportTypes,
+      include_dismissed: includeDismissed.value,
+    })
+
+    const taskId = response.task_id
+
+    // Start fake progress animation
+    startProgressAnimation()
+
+    // Start polling for task completion
+    tasksStore.startPolling(
+      taskId,
+      async (result) => {
+        // Success
+        stopProgressAnimation()
+        generating.value = false
+        progressStep.value = 0
+
+        // Refresh reports
+        await reportsStore.fetchReports(evaluationId.value)
+        await evaluationsStore.fetchOne(evaluationId.value)
+        await loadFailedCriteria()
+
+        // Show success message
+        alert(`Report generated! Verdict: ${result.verdict}`)
+      },
+      (errorMessage) => {
+        // Error
+        stopProgressAnimation()
+        generating.value = false
+        progressStep.value = 0
+
+        alert(`Report generation failed: ${errorMessage}`)
+      },
+    )
+  } catch (err) {
+    generating.value = false
+    progressStep.value = 0
+    alert(`Failed to start report generation: ${err.message}`)
+  }
+}
+
+function startProgressAnimation() {
+  // Fake progress steps
+  progressStep.value = 1
+
+  progressTimer = setTimeout(() => {
+    progressStep.value = 2
+
+    progressTimer = setTimeout(() => {
+      progressStep.value = 3
+
+      progressTimer = setTimeout(() => {
+        progressStep.value = 4
+      }, 3000)
+    }, 3000)
+  }, 2000)
+}
+
+function stopProgressAnimation() {
+  if (progressTimer) {
+    clearTimeout(progressTimer)
+    progressTimer = null
+  }
+}
+
+// Lifecycle
+onMounted(async () => {
+  await loadData()
+})
+
+onUnmounted(() => {
+  tasksStore.stopAll()
+  stopProgressAnimation()
+  reportsStore.clearReports()
+})
 </script>

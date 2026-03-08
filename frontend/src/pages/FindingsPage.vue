@@ -141,9 +141,7 @@
         >
           <div class="flex items-center space-x-3">
             <span class="text-sm font-medium text-indigo-700">
-              {{ selectionCount }} finding{{
-                selectionCount === 1 ? '' : 's'
-              }}
+              {{ selectionCount }} finding{{ selectionCount === 1 ? '' : 's' }}
               selected
             </span>
             <button

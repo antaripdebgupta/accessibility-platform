@@ -13,15 +13,17 @@ from core.logging import get_logger
 
 logger = get_logger(__name__)
 
-# Singleton client instance
+# Singleton client instances
 _minio_client: Optional[Minio] = None
+_minio_external_client: Optional[Minio] = None
 
 
 def get_minio_client() -> Minio:
     """
-    Get the singleton MinIO client instance.
+    Get the singleton MinIO client instance for internal operations.
 
     Creates the client on first call using settings from config.
+    This client uses the internal Docker endpoint (minio:9000).
 
     Returns:
         Minio: The MinIO client instance
@@ -42,6 +44,34 @@ def get_minio_client() -> Minio:
         )
 
     return _minio_client
+
+
+def get_minio_external_client() -> Minio:
+    """
+    Get the singleton MinIO client instance for external (browser) operations.
+
+    Creates the client on first call using the external endpoint.
+    This client is used for generating presigned URLs that browsers can access.
+
+    Returns:
+        Minio: The MinIO client instance configured with external endpoint
+    """
+    global _minio_external_client
+
+    if _minio_external_client is None:
+        _minio_external_client = Minio(
+            endpoint=settings.minio_external_endpoint,
+            access_key=settings.minio_access_key,
+            secret_key=settings.minio_secret_key,
+            secure=settings.minio_secure,
+        )
+        logger.info(
+            "minio_external_client_created",
+            endpoint=settings.minio_external_endpoint,
+            secure=settings.minio_secure,
+        )
+
+    return _minio_external_client
 
 
 def ensure_buckets() -> None:
