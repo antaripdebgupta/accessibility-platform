@@ -12,7 +12,7 @@
   <Transition name="slide">
     <div
       v-if="show && displayFinding"
-      class="fixed right-0 top-0 z-50 flex h-full w-full max-w-[480px] flex-col bg-white shadow-xl"
+      class="fixed right-0 top-0 z-50 flex h-full w-full flex-col bg-white shadow-xl sm:w-120"
     >
       <!-- Header -->
       <div

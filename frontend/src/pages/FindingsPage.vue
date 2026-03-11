@@ -3,7 +3,7 @@
     <!-- Loading State -->
     <div
       v-if="loading && !evaluation"
-      class="flex items-center justify-center py-24"
+      class="flex items-center justify-center py-16"
     >
       <LoadingSpinner size="lg" />
     </div>
@@ -64,18 +64,69 @@
             </svg>
             Add Manual Finding
           </button>
+        </div>
+      </PageHeader>
+
+      <!-- Summary Cards -->
+      <FindingsSummary
+        :summary="findingsStore.summary"
+        :active-severity="findingsStore.filters.severity"
+        class="mb-6"
+        @filter="handleSeverityFilter"
+      />
+
+      <!-- Filters -->
+      <FindingFilters
+        :model-value="findingsStore.filters"
+        class="mb-6"
+        @update:model-value="handleFiltersUpdate"
+      />
+
+      <!-- FIX 9: SCAN_ERROR Warning Banner -->
+      <transition
+        enter-active-class="transition duration-200 ease-out"
+        enter-from-class="translate-y-2 opacity-0"
+        enter-to-class="translate-y-0 opacity-100"
+        leave-active-class="transition duration-150 ease-in"
+        leave-from-class="translate-y-0 opacity-100"
+        leave-to-class="translate-y-2 opacity-0"
+      >
+        <div
+          v-if="scanErrorCount > 0 && findingsStore.summary.totalFindings > 0"
+          class="mb-4 flex items-center justify-between rounded-lg border border-yellow-300 bg-yellow-50 px-4 py-3"
+          role="alert"
+        >
+          <div class="flex items-center space-x-3">
+            <svg
+              class="h-5 w-5 text-yellow-600"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+              aria-hidden="true"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
+              />
+            </svg>
+            <span class="text-sm font-medium text-yellow-800">
+              ⚠ {{ scanErrorCount }} page{{ scanErrorCount === 1 ? '' : 's' }}
+              could not be scanned due to errors. Results may be incomplete.
+            </span>
+          </div>
           <button
             type="button"
-            class="inline-flex items-center rounded-md bg-green-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-green-500 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-            :disabled="generatingReport"
-            @click="handleGenerateReport"
+            class="inline-flex items-center rounded-md bg-yellow-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-yellow-500 focus:outline-none focus:ring-2 focus:ring-yellow-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+            :disabled="rescanLoading"
+            @click="handleRescanErrors"
           >
             <svg
-              v-if="generatingReport"
+              v-if="rescanLoading"
               class="-ml-0.5 mr-1.5 h-4 w-4 animate-spin"
               fill="none"
               viewBox="0 0 24 24"
-              aria-hidden="true"
             >
               <circle
                 class="opacity-25"
@@ -97,34 +148,18 @@
               fill="none"
               stroke="currentColor"
               viewBox="0 0 24 24"
-              aria-hidden="true"
             >
               <path
                 stroke-linecap="round"
                 stroke-linejoin="round"
                 stroke-width="2"
-                d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+                d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
               />
             </svg>
-            {{ generatingReport ? 'Generating...' : 'Generate Report' }}
+            {{ rescanLoading ? 'Re-scanning...' : 'Re-run Scan' }}
           </button>
         </div>
-      </PageHeader>
-
-      <!-- Summary Cards -->
-      <FindingsSummary
-        :summary="findingsStore.summary"
-        :active-severity="findingsStore.filters.severity"
-        class="mb-6"
-        @filter="handleSeverityFilter"
-      />
-
-      <!-- Filters -->
-      <FindingFilters
-        :model-value="findingsStore.filters"
-        class="mb-6"
-        @update:model-value="handleFiltersUpdate"
-      />
+      </transition>
 
       <!-- Bulk Actions Bar -->
       <transition
@@ -345,7 +380,6 @@ const selectedFinding = ref(null)
 const showManualModal = ref(false)
 const pages = ref([])
 const criteria = ref([])
-const generatingReport = ref(false)
 
 // Bulk selection state
 const selectedIds = ref([])
@@ -356,6 +390,10 @@ const bulkProgress = ref({ current: 0, total: 0 })
 const showError = ref(false)
 const errorTitle = ref('Error')
 const errorMessage = ref('')
+
+// FIX 9: SCAN_ERROR tracking state
+const rescanLoading = ref(false)
+const scanErrorCount = ref(0)
 
 // Computed
 const evaluationId = computed(() => route.params.id)
@@ -481,27 +519,6 @@ async function handleCreateManualFinding(formData) {
   }
 }
 
-async function handleGenerateReport() {
-  generatingReport.value = true
-  try {
-    const response = await api.post(
-      `/evaluations/${evaluationId.value}/reports/generate`,
-    )
-    // Navigate to evaluation detail page to see progress
-    router.push({
-      name: 'EvaluationDetail',
-      params: { id: evaluationId.value },
-    })
-  } catch (err) {
-    showErrorToast(
-      'Failed to generate report',
-      err.response?.data?.detail || err.message || 'Unknown error',
-    )
-  } finally {
-    generatingReport.value = false
-  }
-}
-
 // Bulk actions
 function clearSelection() {
   selectedIds.value = []
@@ -593,6 +610,11 @@ async function loadPages() {
       `/evaluations/${evaluationId.value}/pages?limit=200`,
     )
     pages.value = response.data.items
+
+    // FIX 9: Count pages with SCAN_ERROR status
+    scanErrorCount.value = pages.value.filter(
+      (p) => p.scan_status === 'SCAN_ERROR',
+    ).length
   } catch (err) {
     console.error('Failed to load pages:', err)
   }
@@ -604,6 +626,42 @@ async function loadCriteria() {
     criteria.value = response.data
   } catch (err) {
     console.error('Failed to load WCAG criteria:', err)
+  }
+}
+
+// FIX 9: Handle re-scanning only error pages
+async function handleRescanErrors() {
+  if (rescanLoading.value || scanErrorCount.value === 0) return
+
+  rescanLoading.value = true
+
+  try {
+    // Call the scan API with rescan_errors_only flag
+    await api.post(`/evaluations/${evaluationId.value}/scan`, {
+      rescan_errors_only: true,
+    })
+
+    showErrorToast(
+      'Scan Started',
+      `Re-scanning ${scanErrorCount.value} failed page(s). This may take a few minutes.`,
+    )
+
+    // Poll for completion or redirect to evaluation detail
+    // For now, just refresh pages after a short delay
+    setTimeout(async () => {
+      await loadPages()
+      await Promise.all([
+        findingsStore.fetchFindings(evaluationId.value),
+        findingsStore.fetchSummary(evaluationId.value),
+      ])
+    }, 3000)
+  } catch (err) {
+    showErrorToast(
+      'Re-scan Failed',
+      err.response?.data?.detail || err.message || 'Unknown error',
+    )
+  } finally {
+    rescanLoading.value = false
   }
 }
 

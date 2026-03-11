@@ -9,7 +9,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import select, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.auth import get_current_user, require_role
@@ -26,6 +26,7 @@ class ScanRequest(BaseModel):
     """Request schema for triggering a scan."""
 
     page_ids: Optional[list[str]] = None
+    rescan_errors_only: bool = False  # FIX 9: Support rescanning only error pages
 
 
 class ScanResponse(BaseModel):
@@ -89,8 +90,9 @@ async def start_scan(
 
     Args:
         evaluation_id: The evaluation UUID
-        request: Optional list of specific page IDs to scan.
-            If omitted, scans all pages.
+        request: Optional configuration:
+            - page_ids: List of specific page IDs to scan
+            - rescan_errors_only: If True, only rescan pages with SCAN_ERROR status
 
     Returns:
         ScanResponse with task_id for polling
@@ -112,11 +114,33 @@ async def start_scan(
                    f"Please run website exploration first.",
         )
 
-    # Determine pages to queue
+    # ─────────────────────────────────────────────────────────────────────────
+    # FIX 9: Support rescanning only error pages
+    # ─────────────────────────────────────────────────────────────────────────
     page_ids = request.page_ids
     pages_queued_str = "all"
 
-    if page_ids:
+    if request.rescan_errors_only:
+        # Fetch only pages where scan_status = "SCAN_ERROR"
+        error_pages_stmt = select(Page).where(
+            and_(
+                Page.evaluation_id == evaluation_id,
+                Page.scan_status == "SCAN_ERROR",
+            )
+        )
+        error_pages_result = await db.execute(error_pages_stmt)
+        error_pages = error_pages_result.scalars().all()
+
+        if not error_pages:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="No pages with SCAN_ERROR status found to rescan.",
+            )
+
+        page_ids = [str(p.id) for p in error_pages]
+        pages_queued_str = f"{len(page_ids)} error pages"
+
+    elif page_ids:
         # Validate page IDs exist
         for pid in page_ids:
             try:

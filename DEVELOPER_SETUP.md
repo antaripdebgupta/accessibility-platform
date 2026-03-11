@@ -140,7 +140,7 @@ curl -s http://localhost/api/v1/health | jq .
 ### Without Makefile
 
 ```bash
-# Start dev mode
+# Start dev mode---------------------------------------------------------------------------------------------------
 docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
 
 # View logs
@@ -347,6 +347,115 @@ firebase emulators:start
 - **Backend**: Uvicorn with `--reload` flag
 - **Database**: Alembic migrations with auto-upgrade on startup
 - **Auth Bypass**: Dev token for local testing without Firebase
+
+---
+
+## axe-core Setup
+
+The accessibility scanner uses [axe-core](https://github.com/dequelabs/axe-core) for WCAG testing. The `axe.min.js` file is included in the repository, but if you need to update it:
+
+### Download Latest axe-core
+
+```bash
+# Download latest version
+curl -L https://unpkg.com/axe-core/axe.min.js -o backend/scanners/axe.min.js
+
+# Or specific version
+curl -L https://unpkg.com/axe-core@4.10.0/axe.min.js -o backend/scanners/axe.min.js
+```
+
+### Verify Installation
+
+```bash
+# Check axe-core version
+head -1 backend/scanners/axe.min.js
+# Should show: /*! axe v4.x.x ...
+```
+
+The scanner injects this file into pages via Playwright during accessibility audits.
+
+---
+
+## MinIO Storage Console
+
+MinIO provides S3-compatible object storage for PDF reports and exports.
+
+### Access MinIO Console
+
+| URL          | http://localhost:9001 |
+| ------------ | --------------------- |
+| **Username** | minioadmin            |
+| **Password** | minioadmin            |
+
+### Storage Buckets
+
+The platform uses these buckets (created automatically):
+
+- `reports` — Generated PDF conformance reports
+- `exports` — CSV and EARL export files
+
+### Presigned URLs
+
+Download links for reports use presigned URLs that:
+
+- Expire after 72 hours
+- Are generated on-demand via the API
+- Don't require authentication to download
+
+### Manual Bucket Operations
+
+```bash
+# List buckets
+docker compose exec minio mc ls local/
+
+# List reports
+docker compose exec minio mc ls local/reports/
+
+# Download a report
+docker compose exec minio mc cp local/reports/<report-id>.pdf ./
+```
+
+---
+
+## Seed Scripts
+
+The platform includes scripts to populate the database with required data.
+
+### WCAG Criteria Seed
+
+Seeds all 50 WCAG 2.1 Level A & AA success criteria:
+
+```bash
+# Via Makefile
+make seed-wcag
+
+# Or directly
+docker compose exec api python -m scripts.seed_wcag
+```
+
+### Development User Seed
+
+Creates a dev user and organisation:
+
+```bash
+# Via Makefile
+make seed-dev
+
+# Or directly
+docker compose exec api python -m scripts.seed_dev
+```
+
+Creates:
+
+- **User**: `dev@example.com` with Firebase UID `dev-user-uid`
+- **Organisation**: "Dev Org"
+- **Role**: OWNER
+
+### Run All Seeds
+
+```bash
+make seed
+```
 
 ---
 

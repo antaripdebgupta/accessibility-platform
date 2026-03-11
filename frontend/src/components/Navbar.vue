@@ -1,7 +1,7 @@
 <template>
   <Disclosure
     as="nav"
-    class="bg-white border-b border-gray-200"
+    class="fixed left-0 right-0 top-0 z-50 bg-white border-b border-gray-200"
     v-slot="{ open }"
   >
     <div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
@@ -27,19 +27,6 @@
               </svg>
             </div>
             <span class="text-lg font-semibold text-gray-900">AccessHub</span>
-          </router-link>
-        </div>
-
-        <!-- Desktop Navigation -->
-        <div class="hidden md:flex md:items-center md:space-x-1">
-          <router-link
-            v-for="item in navigation"
-            :key="item.name"
-            :to="item.href"
-            class="px-4 py-2 text-sm font-medium text-gray-600 rounded-lg hover:bg-gray-100 hover:text-gray-900 transition-colors"
-            active-class="bg-primary-50 text-primary-700"
-          >
-            {{ item.name }}
           </router-link>
         </div>
 

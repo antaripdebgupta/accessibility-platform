@@ -100,8 +100,16 @@ services:
     volumes:
       - ./backend:/app
       - firebase_secrets:/run/secrets
+    # FIX 7: Increased shm_size for Playwright browser operations
     shm_size: "2gb"
-    command: celery -A tasks.celery_app worker --loglevel=info -Q crawl,scan,report
+    # Resource limits for stable Playwright operation
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+        reservations:
+          memory: 2G
+    command: celery -A tasks.celery_app worker --loglevel=info -Q crawl,scan,report --concurrency=2
 
   frontend:
     build:

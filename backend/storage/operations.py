@@ -88,7 +88,7 @@ def upload_bytes(
 def get_presigned_url(
     bucket: str,
     key: str,
-    expires_hours: int = 24,
+    expires_hours: int = 72,
 ) -> str:
     """
     Generate a presigned GET URL for an object.
@@ -100,7 +100,7 @@ def get_presigned_url(
     Args:
         bucket: The bucket name
         key: The object key
-        expires_hours: URL expiration time in hours (default: 24)
+        expires_hours: URL expiration time in hours (default: 72 for demo links)
 
     Returns:
         str: The presigned URL, or empty string on failure (never raises)

@@ -122,3 +122,68 @@ npm run dev
 
 - **Swagger UI**: http://localhost/api/v1/docs
 - **ReDoc**: http://localhost/api/v1/redoc
+
+## Architecture
+
+```
+┌─────────────┐     ┌─────────────┐     ┌──────────────┐
+│   Browser   │────▶│    Nginx    │────▶│   Vue SPA    │
+│             │     │  (Reverse   │     │  (Frontend)  │
+└─────────────┘     │   Proxy)    │     └──────────────┘
+                    │             │
+                    │             │     ┌──────────────┐
+                    │             │────▶│   FastAPI    │
+                    └─────────────┘     │   (Backend)  │
+                                        └──────┬───────┘
+                                               │
+                    ┌──────────────────────────┼──────────────────────────┐
+                    │                          │                          │
+                    ▼                          ▼                          ▼
+            ┌──────────────┐           ┌──────────────┐           ┌──────────────┐
+            │  PostgreSQL  │           │    Redis     │           │    MinIO     │
+            │  (Database)  │           │   (Broker)   │           │  (Storage)   │
+            └──────────────┘           └──────┬───────┘           └──────────────┘
+                                              │
+                                              ▼
+                                      ┌──────────────┐
+                                      │   Celery     │
+                                      │   Worker     │
+                                      │ (Playwright) │
+                                      └──────────────┘
+```
+
+## What's Implemented
+
+| Feature                    | Status   | Description                                      |
+| -------------------------- | -------- | ------------------------------------------------ |
+| **Authentication**         | Complete | Firebase Auth with dev bypass token              |
+| **Evaluation CRUD**        | Complete | Create, read, update, soft-delete evaluations    |
+| **Page Discovery**         | Complete | Playwright-based crawler with robots.txt support |
+| **Accessibility Scanning** | Complete | axe-core integration with parallel scanning      |
+| **Findings Management**    | Complete | Per-criterion verdict review (pass/fail/N/A)     |
+| **WCAG Criteria**          | Complete | All 50 WCAG 2.1 Level A & AA criteria seeded     |
+| **PDF Reports**            | Complete | WeasyPrint-generated WCAG-EM conformance reports |
+| **CSV/EARL Export**        | Complete | Machine-readable accessibility findings export   |
+| **Audit Logging**          | Complete | Full audit trail for compliance                  |
+| **Multi-org Support**      | Complete | Organisation-scoped evaluations                  |
+| **Responsive UI**          | Complete | Mobile-friendly Vue 3 + Tailwind interface       |
+
+## WCAG-EM Workflow
+
+The platform implements the [WCAG-EM methodology](https://www.w3.org/WAI/test-evaluate/conformance/wcag-em/):
+
+1. **Define Scope** — Set target URL and evaluation parameters
+2. **Explore Website** — Crawl and discover pages automatically
+3. **Select Sample** — Choose representative pages for testing
+4. **Audit Sample** — Run axe-core accessibility tests
+5. **Report Findings** — Review verdicts and generate conformance report
+
+## Demo
+
+See [DEMO.md](./DEMO.md) for a step-by-step walkthrough using the W3C BAD demo site.
+
+## Documentation
+
+- [Developer Setup Guide](./DEVELOPER_SETUP.md) — Complete local setup instructions
+- [Firebase Setup](./FIREBASE_SETUP.md) — Authentication configuration
+- [API Documentation](http://localhost/api/v1/docs) — Interactive Swagger UI

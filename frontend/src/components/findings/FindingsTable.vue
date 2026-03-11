@@ -43,56 +43,57 @@
       </p>
     </div>
 
-    <!-- Findings Table -->
-    <table v-else class="min-w-full divide-y divide-gray-200">
-      <thead class="bg-gray-50">
-        <tr>
-          <!-- Checkbox Header -->
-          <th v-if="selectable" scope="col" class="w-12 px-4 py-3">
-            <input
-              type="checkbox"
-              class="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
-              :checked="allSelected"
-              :indeterminate="someSelected && !allSelected"
-              @change="handleSelectAll"
-            />
-          </th>
-          <th
-            scope="col"
-            class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500"
-          >
-            Severity
-          </th>
-          <th
-            scope="col"
-            class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500"
-          >
-            WCAG Criterion
-          </th>
-          <th
-            scope="col"
-            class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500"
-          >
-            Page
-          </th>
-          <th
-            scope="col"
-            class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500"
-          >
-            Description
-          </th>
-          <th
-            scope="col"
-            class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500"
-          >
-            Status
-          </th>
-          <th
-            scope="col"
-            class="px-6 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500"
-          >
-            Actions
-          </th>
+    <!-- Findings Table Wrapper for mobile scroll -->
+    <div v-else class="overflow-x-auto">
+      <table class="min-w-full divide-y divide-gray-200">
+        <thead class="bg-gray-50">
+          <tr>
+            <!-- Checkbox Header -->
+            <th v-if="selectable" scope="col" class="w-12 px-4 py-3">
+              <input
+                type="checkbox"
+                class="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                :checked="allSelected"
+                :indeterminate="someSelected && !allSelected"
+                @change="handleSelectAll"
+              />
+            </th>
+            <th
+              scope="col"
+              class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500"
+            >
+              Severity
+            </th>
+            <th
+              scope="col"
+              class="hidden px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 md:table-cell"
+            >
+              WCAG Criterion
+            </th>
+            <th
+              scope="col"
+              class="hidden px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 lg:table-cell"
+            >
+              Page
+            </th>
+            <th
+              scope="col"
+              class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500"
+            >
+              Description
+            </th>
+            <th
+              scope="col"
+              class="hidden px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 sm:table-cell"
+            >
+              Status
+            </th>
+            <th
+              scope="col"
+              class="px-6 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500"
+            >
+              Actions
+            </th>
         </tr>
       </thead>
       <tbody class="divide-y divide-gray-200 bg-white">
@@ -118,9 +119,12 @@
           </td>
 
           <!-- WCAG Criterion -->
-          <td class="px-6 py-4">
+          <td class="hidden px-6 py-4 md:table-cell">
             <div class="text-sm font-medium text-gray-900">
-              {{ finding.criterion_code || 'N/A' }}
+              {{
+                finding.criterion_code ||
+                (finding.rule_id ? `Rule: ${finding.rule_id}` : 'N/A')
+              }}
             </div>
             <div
               v-if="finding.criterion_name"
@@ -131,7 +135,7 @@
           </td>
 
           <!-- Page URL -->
-          <td class="max-w-[150px] px-6 py-4">
+          <td class="hidden max-w-xs px-6 py-4 lg:table-cell">
             <a
               v-if="finding.page_url"
               :href="finding.page_url"
@@ -142,7 +146,7 @@
             >
               <span class="truncate">{{ truncateUrl(finding.page_url) }}</span>
               <svg
-                class="ml-1 h-3 w-3 flex-shrink-0"
+                class="ml-1 h-3 w-3 shrink-0"
                 fill="none"
                 stroke="currentColor"
                 viewBox="0 0 24 24"
@@ -159,14 +163,14 @@
           </td>
 
           <!-- Description -->
-          <td class="max-w-xs px-6 py-4">
-            <p class="truncate text-sm text-gray-900">
-              {{ truncateText(finding.description, 80) }}
+          <td class="px-6 py-4">
+            <p class="line-clamp-2 text-sm text-gray-900">
+              {{ finding.description }}
             </p>
           </td>
 
           <!-- Status -->
-          <td class="whitespace-nowrap px-6 py-4">
+          <td class="hidden whitespace-nowrap px-6 py-4 sm:table-cell">
             <span
               class="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium"
               :class="getStatusClasses(finding.status)"
@@ -202,7 +206,8 @@
           </td>
         </tr>
       </tbody>
-    </table>
+      </table>
+    </div>
   </div>
 </template>
 

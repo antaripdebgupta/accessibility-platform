@@ -10,12 +10,35 @@ from dataclasses import dataclass
 from typing import Optional
 from urllib.parse import urlparse, urlunparse
 
-from playwright.async_api import async_playwright
+import httpx
+from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeoutError
 
 from core.logging import get_logger
 from crawler.robots import USER_AGENT, can_fetch, fetch_robots_parser
 
 logger = get_logger(__name__)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# FIX 6: Route blocking patterns for speed optimization
+# ─────────────────────────────────────────────────────────────────────────────
+BLOCKED_RESOURCE_PATTERNS = [
+    "google-analytics",
+    "googletagmanager",
+    "facebook.net",
+    "hotjar",
+    "intercom",
+    "crisp.chat",
+    "fonts.googleapis",
+    "doubleclick.net",
+    "googlesyndication",
+    "segment.com",
+    "mixpanel.com",
+    "amplitude.com",
+    "fullstory.com",
+    "newrelic.com",
+    "sentry.io",
+    "cloudflareinsights",
+]
 
 
 @dataclass
@@ -123,6 +146,7 @@ def normalise_url(url: str, base_domain: str) -> Optional[str]:
                 return None
 
         # Strip fragment and query string, normalize path
+        # Strip trailing slash to avoid duplicates (e.g., /about/ == /about)
         path = parsed.path.rstrip('/') or '/'
         normalized = urlunparse((
             parsed.scheme,
@@ -137,6 +161,32 @@ def normalise_url(url: str, base_domain: str) -> Optional[str]:
 
     except Exception:
         return None
+
+
+async def check_content_type(url: str) -> Optional[str]:
+    """
+    Send a HEAD request to check the Content-Type of a URL.
+
+    Args:
+        url: The URL to check
+
+    Returns:
+        Content-Type header value or None on error
+    """
+    try:
+        async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
+            response = await client.head(url, headers={'User-Agent': USER_AGENT})
+            return response.headers.get('content-type', '')
+    except Exception:
+        return None
+
+
+def is_html_content_type(content_type: Optional[str]) -> bool:
+    """Check if a Content-Type header indicates HTML content."""
+    if not content_type:
+        return True  # Assume HTML if we can't determine
+    content_type = content_type.lower()
+    return 'text/html' in content_type or 'application/xhtml' in content_type
 
 
 async def crawl(
@@ -234,12 +284,75 @@ async def crawl(
                 try:
                     page = await context.new_page()
 
-                    # Navigate to the page
-                    response = await page.goto(
-                        current_url,
-                        wait_until="domcontentloaded",
-                        timeout=30000
-                    )
+                    # ─────────────────────────────────────────────────────────
+                    # FIX 6: Set Accept-Language header to avoid redirect loops
+                    # ─────────────────────────────────────────────────────────
+                    await page.set_extra_http_headers({
+                        "Accept-Language": "en-US,en;q=0.9"
+                    })
+
+                    # ─────────────────────────────────────────────────────────
+                    # FIX 6: Block tracking/analytics scripts for faster crawl
+                    # ─────────────────────────────────────────────────────────
+                    async def handle_route(route):
+                        request_url = route.request.url.lower()
+                        if any(pattern in request_url for pattern in BLOCKED_RESOURCE_PATTERNS):
+                            await route.abort()
+                        else:
+                            await route.continue_()
+
+                    await page.route("**/*", handle_route)
+
+                    # Check Content-Type via HEAD request before loading
+                    content_type = await check_content_type(current_url)
+                    if not is_html_content_type(content_type):
+                        logger.debug(
+                            "skipping_non_html",
+                            url=current_url,
+                            content_type=content_type
+                        )
+                        continue
+
+                    # ─────────────────────────────────────────────────────────
+                    # FIX 6: Use domcontentloaded + short settle time
+                    # ─────────────────────────────────────────────────────────
+                    # Navigate to the page with timeout handling
+                    try:
+                        response = await page.goto(
+                            current_url,
+                            wait_until="domcontentloaded",
+                            timeout=20000  # Reduced from 30s
+                        )
+
+                        # Short settle time — crawler only needs links, not full render
+                        await page.wait_for_timeout(800)
+
+                    except PlaywrightTimeoutError:
+                        # Timeout: record error and continue
+                        results.append(PageData(
+                            url=current_url,
+                            title="",
+                            http_status=0,
+                            page_type="error",
+                            error="timeout"
+                        ))
+                        logger.warning(
+                            "page_timeout",
+                            url=current_url
+                        )
+                        continue
+
+                    # Get the final URL after any redirects
+                    final_url = page.url
+                    final_url_normalized = normalise_url(final_url, base_domain)
+
+                    # If redirected to a different URL, use the final URL
+                    if final_url_normalized and final_url_normalized != current_url:
+                        # Check if we've already visited the final URL
+                        if final_url_normalized in visited:
+                            continue
+                        visited.add(final_url_normalized)
+                        current_url = final_url_normalized
 
                     http_status = response.status if response else 0
                     title = await page.title() or ""
@@ -285,6 +398,20 @@ async def crawl(
                         links_found=len(links)
                     )
 
+                except PlaywrightTimeoutError:
+                    # Timeout during page operations
+                    results.append(PageData(
+                        url=current_url,
+                        title="",
+                        http_status=0,
+                        page_type="error",
+                        error="timeout"
+                    ))
+                    logger.warning(
+                        "page_timeout",
+                        url=current_url
+                    )
+
                 except Exception as e:
                     # Record error but continue crawling
                     error_msg = str(e)[:200]
@@ -307,6 +434,21 @@ async def crawl(
                             await page.close()
                         except Exception:
                             pass
+
+            # Ensure at least the root page is returned (for JS-heavy SPAs with no links)
+            if len(results) == 0:
+                normalized_start = normalise_url(start_url, base_domain) or start_url
+                results.append(PageData(
+                    url=normalized_start,
+                    title="",
+                    http_status=0,
+                    page_type="home",
+                    error="no_links_found"
+                ))
+                logger.info(
+                    "crawl_returning_root_only",
+                    start_url=start_url
+                )
 
             logger.info(
                 "crawl_completed",

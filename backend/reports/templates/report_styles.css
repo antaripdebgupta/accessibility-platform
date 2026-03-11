@@ -408,6 +408,13 @@ tr:nth-child(even) td {
   margin: 24px 0;
 }
 
+/* ── Page URLs ───────────────────────────── */
+.page-url {
+  word-break: break-all;
+  overflow-wrap: anywhere;
+  max-width: 100%;
+}
+
 /* ── Print Styles ───────────────────────────── */
 @media print {
   .no-print {

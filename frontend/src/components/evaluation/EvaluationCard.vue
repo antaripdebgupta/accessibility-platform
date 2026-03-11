@@ -17,7 +17,8 @@
           class="mt-1 truncate text-sm text-gray-500"
           :title="evaluation.target_url"
         >
-          {{ truncatedUrl }}
+          <span class="sm:hidden">{{ truncatedUrlMobile }}</span>
+          <span class="hidden sm:inline">{{ truncatedUrlDesktop }}</span>
         </p>
       </div>
 
@@ -78,18 +79,31 @@ const props = defineProps({
 })
 
 /**
- * Truncate URL for display, keeping domain and start of path.
+ * Truncate URL for display - shorter on mobile, longer on desktop.
  */
-const truncatedUrl = computed(() => {
+const truncatedUrlMobile = computed(() => {
   const url = props.evaluation.target_url
   if (!url) return ''
 
   try {
     const parsed = new URL(url)
     const display = parsed.hostname + parsed.pathname
-    return display.length > 50 ? display.substring(0, 47) + '...' : display
+    return display.length > 35 ? display.substring(0, 32) + '...' : display
   } catch {
-    return url.length > 50 ? url.substring(0, 47) + '...' : url
+    return url.length > 35 ? url.substring(0, 32) + '...' : url
+  }
+})
+
+const truncatedUrlDesktop = computed(() => {
+  const url = props.evaluation.target_url
+  if (!url) return ''
+
+  try {
+    const parsed = new URL(url)
+    const display = parsed.hostname + parsed.pathname
+    return display.length > 60 ? display.substring(0, 57) + '...' : display
+  } catch {
+    return url.length > 60 ? url.substring(0, 57) + '...' : url
   }
 })
 

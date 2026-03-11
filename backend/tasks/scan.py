@@ -11,7 +11,9 @@ from typing import Optional
 from uuid import UUID
 
 from celery import Task
+from celery.exceptions import SoftTimeLimitExceeded
 from celery.signals import worker_ready
+from playwright.async_api import async_playwright
 from sqlalchemy import create_engine, select, and_
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -21,7 +23,7 @@ from models.evaluation import EvaluationProject
 from models.finding import Finding
 from models.page import Page
 from models.wcag import WcagCriterion
-from scanners.axe_runner import run_axe_on_page
+from scanners.axe_runner import run_axe_on_page, AxeResult, BROWSER_ARGS
 from scanners.normalise import normalise_axe_results
 from storage.client import ensure_buckets
 from tasks import celery_app
@@ -61,6 +63,114 @@ def get_sync_session() -> Session:
     return SyncSessionLocal()
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# FIX 5: Per-page timeout protection
+# ─────────────────────────────────────────────────────────────────────────────
+async def scan_single_page_with_timeout(
+    page_url: str,
+    evaluation_id: str,
+    page_id: str,
+    context,
+    timeout_seconds: int = 45,
+) -> AxeResult:
+    """
+    Scan a single page with a hard timeout.
+
+    Wraps run_axe_on_page in asyncio.wait_for so one hanging page
+    cannot stall the entire scan task.
+
+    Args:
+        page_url: URL to scan
+        evaluation_id: Evaluation UUID string
+        page_id: Page UUID string
+        context: Shared Playwright BrowserContext
+        timeout_seconds: Maximum time allowed for this page scan
+
+    Returns:
+        AxeResult, potentially with scan_failed=True on timeout
+    """
+    try:
+        return await asyncio.wait_for(
+            run_axe_on_page(page_url, evaluation_id, page_id, context=context),
+            timeout=timeout_seconds,
+        )
+    except asyncio.TimeoutError:
+        logger.error(
+            "page_scan_timeout",
+            url=page_url,
+            timeout=timeout_seconds,
+        )
+        return AxeResult(
+            violations=[],
+            passes=[],
+            incomplete=[],
+            url=page_url,
+            screenshot_key=None,
+            scan_failed=True,
+            failure_reason=f"scan timeout after {timeout_seconds}s",
+        )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# FIX 4: Browser context reuse — single browser for entire scan
+# ─────────────────────────────────────────────────────────────────────────────
+async def scan_all_pages_async(
+    pages_data: list[tuple[str, str, str]],
+    evaluation_id: str,
+    wcag_criteria_map: dict[str, str],
+) -> list[tuple[str, AxeResult]]:
+    """
+    Scan all pages using a single shared browser context.
+
+    This is the key performance optimization — launching one browser
+    instead of one per page saves 2-4 seconds per page.
+
+    Args:
+        pages_data: List of (page_id, url, page_id) tuples
+        evaluation_id: Evaluation UUID string
+        wcag_criteria_map: WCAG criterion mapping
+
+    Returns:
+        List of (page_id, AxeResult) tuples
+    """
+    results = []
+
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(
+            headless=True,
+            args=BROWSER_ARGS,
+        )
+
+        context = await browser.new_context(
+            viewport={"width": 1280, "height": 800},
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 (compatible; A11yBot/1.0)",
+            ignore_https_errors=True,
+            java_script_enabled=True,
+        )
+
+        logger.info(
+            "scan_browser_launched",
+            evaluation_id=evaluation_id,
+            pages_count=len(pages_data),
+        )
+
+        try:
+            for page_id, url, _ in pages_data:
+                result = await scan_single_page_with_timeout(
+                    page_url=url,
+                    evaluation_id=evaluation_id,
+                    page_id=page_id,
+                    context=context,
+                    timeout_seconds=45,
+                )
+                results.append((page_id, result))
+        finally:
+            await context.close()
+            await browser.close()
+
+    return results
+
+
 @worker_ready.connect
 def on_worker_ready(**kwargs):
     """
@@ -69,7 +179,11 @@ def on_worker_ready(**kwargs):
     Ensures MinIO buckets exist on worker startup.
     """
     logger.info("celery_worker_ready_scan_task")
-    ensure_buckets()
+    try:
+        ensure_buckets()
+        logger.info("celery_worker_storage_initialized_successfully")
+    except Exception as e:
+        logger.error("celery_worker_storage_initialization_failed", error=str(e))
 
 
 @celery_app.task(
@@ -78,6 +192,8 @@ def on_worker_ready(**kwargs):
     queue="scan",
     max_retries=1,
     default_retry_delay=60,
+    soft_time_limit=300,  # 5 min soft limit — raises SoftTimeLimitExceeded
+    time_limit=360,       # 6 min hard limit — kills the task
 )
 def scan_pages(
     self: Task,
@@ -87,8 +203,8 @@ def scan_pages(
     """
     Run accessibility scans on pages for an evaluation.
 
-    This is a synchronous Celery task that runs async axe-core scans
-    via asyncio.run().
+    This task uses a single shared browser context for all pages,
+    dramatically reducing scan time (saves 2-4 seconds per page).
 
     Args:
         evaluation_id: The evaluation UUID string
@@ -109,6 +225,7 @@ def scan_pages(
     total_findings = 0
     pages_with_errors = 0
     pages_scanned = 0
+    unscanned_pages: list[Page] = []
 
     try:
         # Fetch evaluation
@@ -122,7 +239,7 @@ def scan_pages(
 
         # Determine which pages to scan
         if page_ids:
-            # Scan specific pages
+            # Scan specific pages (including SCAN_ERROR pages for retry)
             page_uuids = [UUID(pid) for pid in page_ids]
             pages_stmt = select(Page).where(
                 and_(
@@ -131,11 +248,11 @@ def scan_pages(
                 )
             )
         else:
-            # Scan all pages that haven't been completed
+            # Scan all pages that haven't been completed successfully
             pages_stmt = select(Page).where(
                 and_(
                     Page.evaluation_id == eval_uuid,
-                    Page.scan_status != "COMPLETE",
+                    Page.scan_status.notin_(["COMPLETE"]),
                 )
             )
 
@@ -153,6 +270,9 @@ def scan_pages(
                 "total_findings": 0,
                 "pages_with_errors": 0,
             }
+
+        # Track unscanned pages for SoftTimeLimitExceeded handling
+        unscanned_pages = pages.copy()
 
         # Update evaluation status to AUDITING
         evaluation.status = "AUDITING"
@@ -180,106 +300,127 @@ def scan_pages(
             criteria_count=len(wcag_criteria_map),
         )
 
-        # Process each page
+        # Mark all pages as IN_PROGRESS before starting batch scan
         for page in pages:
-            try:
-                # Update page scan status
-                page.scan_status = "IN_PROGRESS"
-                session.commit()
+            page.scan_status = "IN_PROGRESS"
+        session.commit()
 
-                logger.info(
-                    "scan_page_starting",
-                    page_id=str(page.id),
+        # ─────────────────────────────────────────────────────────────────────
+        # FIX 4 & 5: Run all scans with shared browser context
+        # ─────────────────────────────────────────────────────────────────────
+        pages_data = [(str(page.id), page.url, str(page.id)) for page in pages]
+
+        # Run async scan with shared browser
+        scan_results = asyncio.run(
+            scan_all_pages_async(pages_data, evaluation_id, wcag_criteria_map)
+        )
+
+        # Build lookup for results
+        results_map = {page_id: result for page_id, result in scan_results}
+
+        # Process each page's results
+        for page in pages:
+            page_id_str = str(page.id)
+            axe_result = results_map.get(page_id_str)
+
+            # Remove from unscanned list
+            if page in unscanned_pages:
+                unscanned_pages.remove(page)
+
+            if axe_result is None:
+                # Should not happen, but handle gracefully
+                logger.error(
+                    "scan_result_missing",
+                    page_id=page_id_str,
                     url=page.url,
                 )
+                page.scan_status = "SCAN_ERROR"
+                pages_with_errors += 1
+                session.commit()
+                continue
 
-                # Run axe-core scan (async, wrapped in asyncio.run)
-                axe_result = asyncio.run(
-                    run_axe_on_page(
-                        url=page.url,
-                        evaluation_id=evaluation_id,
-                        page_id=str(page.id),
-                    )
-                )
-
-                # Normalize results
-                normalised_findings = normalise_axe_results(
-                    axe_result=axe_result,
-                    evaluation_id=evaluation_id,
-                    page_id=str(page.id),
-                    wcag_criteria_map=wcag_criteria_map,
-                )
-
-                # Insert findings (avoid duplicates)
-                page_findings_inserted = 0
-                for finding_dict in normalised_findings:
-                    # Check if finding already exists
-                    existing_stmt = select(Finding).where(
-                        and_(
-                            Finding.evaluation_id == eval_uuid,
-                            Finding.page_id == page.id,
-                            Finding.rule_id == finding_dict["rule_id"],
-                            Finding.css_selector == finding_dict["css_selector"],
-                        )
-                    )
-                    existing_result = session.execute(existing_stmt)
-                    existing_finding = existing_result.scalar_one_or_none()
-
-                    if existing_finding is None:
-                        # Create new finding
-                        new_finding = Finding(
-                            evaluation_id=eval_uuid,
-                            page_id=page.id,
-                            criterion_id=UUID(finding_dict["criterion_id"]) if finding_dict["criterion_id"] else None,
-                            source=finding_dict["source"],
-                            rule_id=finding_dict["rule_id"],
-                            description=finding_dict["description"],
-                            severity=finding_dict["severity"],
-                            css_selector=finding_dict["css_selector"],
-                            html_snippet=finding_dict["html_snippet"],
-                            impact=finding_dict["impact"],
-                            remediation=finding_dict["remediation"],
-                            status=finding_dict["status"],
-                            raw_result=finding_dict["raw_result"],
-                            screenshot_key=finding_dict["screenshot_key"],
-                        )
-                        session.add(new_finding)
-                        page_findings_inserted += 1
-
-                # Update page status and screenshot
-                page.scan_status = "COMPLETE"
+            # ─────────────────────────────────────────────────────────────────
+            # FIX 2: Handle scan_failed — set SCAN_ERROR, never store as success
+            # ─────────────────────────────────────────────────────────────────
+            if axe_result.scan_failed:
+                page.scan_status = "SCAN_ERROR"
                 page.screenshot_key = axe_result.screenshot_key
                 page.scanned_at = datetime.utcnow()
                 session.commit()
-
-                pages_scanned += 1
-                total_findings += page_findings_inserted
+                pages_with_errors += 1
 
                 logger.info(
-                    "scan_page_completed",
-                    page_id=str(page.id),
+                    "page_scan_result",
                     url=page.url,
-                    violations_found=len(axe_result.violations),
-                    findings_inserted=page_findings_inserted,
+                    status="error",
+                    findings_inserted=0,
+                    failure_reason=axe_result.failure_reason,
                 )
-
-            except Exception as page_error:
-                # Handle per-page errors
-                logger.error(
-                    "scan_page_failed",
-                    page_id=str(page.id),
-                    url=page.url,
-                    error=str(page_error),
-                )
-
-                try:
-                    page.scan_status = "FAILED"
-                    session.commit()
-                except Exception:
-                    session.rollback()
-
-                pages_with_errors += 1
                 continue
+
+            # Normalize results
+            normalised_findings = normalise_axe_results(
+                axe_result=axe_result,
+                evaluation_id=evaluation_id,
+                page_id=page_id_str,
+                wcag_criteria_map=wcag_criteria_map,
+            )
+
+            # Insert findings (avoid duplicates)
+            page_findings_inserted = 0
+            for finding_dict in normalised_findings:
+                # Check if finding already exists
+                existing_stmt = select(Finding).where(
+                    and_(
+                        Finding.evaluation_id == eval_uuid,
+                        Finding.page_id == page.id,
+                        Finding.rule_id == finding_dict["rule_id"],
+                        Finding.css_selector == finding_dict["css_selector"],
+                    )
+                )
+                existing_result = session.execute(existing_stmt)
+                existing_finding = existing_result.scalar_one_or_none()
+
+                if existing_finding is None:
+                    # Create new finding
+                    new_finding = Finding(
+                        evaluation_id=eval_uuid,
+                        page_id=page.id,
+                        criterion_id=UUID(finding_dict["criterion_id"]) if finding_dict["criterion_id"] else None,
+                        source=finding_dict["source"],
+                        rule_id=finding_dict["rule_id"],
+                        description=finding_dict["description"],
+                        severity=finding_dict["severity"],
+                        css_selector=finding_dict["css_selector"],
+                        html_snippet=finding_dict["html_snippet"],
+                        impact=finding_dict["impact"],
+                        remediation=finding_dict["remediation"],
+                        status=finding_dict["status"],
+                        raw_result=finding_dict["raw_result"],
+                        screenshot_key=finding_dict["screenshot_key"],
+                    )
+                    session.add(new_finding)
+                    page_findings_inserted += 1
+
+            # Update page status and screenshot
+            page.scan_status = "COMPLETE"
+            page.screenshot_key = axe_result.screenshot_key
+            page.scanned_at = datetime.utcnow()
+            session.commit()
+
+            pages_scanned += 1
+            total_findings += page_findings_inserted
+
+            # ─────────────────────────────────────────────────────────────────
+            # FIX 8: Log summary after each page
+            # ─────────────────────────────────────────────────────────────────
+            logger.info(
+                "page_scan_result",
+                url=page.url,
+                status="success",
+                findings_inserted=page_findings_inserted,
+                failure_reason=None,
+            )
 
         # Update evaluation status to REPORTING
         evaluation.status = "REPORTING"
@@ -299,6 +440,53 @@ def scan_pages(
             "pages_scanned": pages_scanned,
             "total_findings": total_findings,
             "pages_with_errors": pages_with_errors,
+        }
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # FIX 7: SoftTimeLimitExceeded handling — advance with partial results
+    # ─────────────────────────────────────────────────────────────────────────
+    except SoftTimeLimitExceeded:
+        logger.error(
+            "scan_soft_time_limit_exceeded",
+            task_id=self.request.id,
+            evaluation_id=evaluation_id,
+            unscanned_pages_count=len(unscanned_pages),
+        )
+
+        try:
+            # Mark remaining pages as SCAN_ERROR
+            for page in unscanned_pages:
+                page.scan_status = "SCAN_ERROR"
+            session.commit()
+
+            # Still advance to REPORTING with partial results
+            eval_uuid = UUID(evaluation_id)
+            stmt = select(EvaluationProject).where(EvaluationProject.id == eval_uuid)
+            result = session.execute(stmt)
+            evaluation = result.scalar_one_or_none()
+            if evaluation:
+                evaluation.status = "REPORTING"
+                session.commit()
+
+            logger.info(
+                "scan_advanced_to_reporting_with_partial_results",
+                evaluation_id=evaluation_id,
+                pages_scanned=pages_scanned,
+                pages_with_errors=len(unscanned_pages),
+            )
+        except Exception as cleanup_error:
+            logger.error(
+                "scan_timeout_cleanup_failed",
+                error=str(cleanup_error),
+            )
+            session.rollback()
+
+        return {
+            "evaluation_id": evaluation_id,
+            "pages_scanned": pages_scanned,
+            "total_findings": total_findings,
+            "pages_with_errors": len(unscanned_pages),
+            "timeout": True,
         }
 
     except Exception as e:

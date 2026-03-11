@@ -1,6 +1,8 @@
 <template>
   <div class="mb-8">
-    <div class="flex items-start justify-between">
+    <div
+      class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between"
+    >
       <!-- Left side: Back arrow + Title/Subtitle -->
       <div class="flex items-start">
         <!-- Back arrow link -->
@@ -28,7 +30,7 @@
 
         <!-- Title and subtitle -->
         <div>
-          <h1 class="text-2xl font-bold text-gray-900">
+          <h1 class="text-xl font-bold text-gray-900 sm:text-2xl">
             {{ title }}
           </h1>
           <p v-if="subtitle" class="mt-1 text-sm text-gray-500">

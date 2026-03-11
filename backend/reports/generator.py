@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from jinja2 import Environment, FileSystemLoader
+from markupsafe import escape
 
 from reports.verdict import VerdictResult
 
@@ -20,6 +21,26 @@ class ReportGenerationError(Exception):
         self.message = message
         self.original_error = original_error
         super().__init__(self.message)
+
+
+def escape_finding_content(finding: dict) -> dict:
+    """
+    HTML-escape user-provided content in a finding to prevent WeasyPrint crashes.
+
+    Args:
+        finding: A finding dictionary
+
+    Returns:
+        The finding with escaped content
+    """
+    escaped = dict(finding)
+    fields_to_escape = ['description', 'css_selector', 'html_snippet', 'reviewer_note']
+
+    for field in fields_to_escape:
+        if field in escaped and escaped[field]:
+            escaped[field] = str(escape(str(escaped[field])))
+
+    return escaped
 
 
 def generate_pdf_report(
@@ -78,14 +99,19 @@ def generate_pdf_report(
             "CANNOT_DETERMINE": "Insufficient data to determine conformance. Ensure pages have been scanned and findings reviewed.",
         }
 
+        # Escape user-provided content in confirmed findings to prevent WeasyPrint crashes
+        escaped_findings = [escape_finding_content(f) if isinstance(f, dict) else f for f in confirmed_findings]
+
         # Build template context
         context = {
             "verdict": verdict,
-            "report_title": f"Accessibility Report — {evaluation.title}",
+            "report_title": f"Accessibility Report — {escape(str(evaluation.title))}",
             "evaluation": evaluation,
             "verdict_label": verdict_labels.get(verdict.verdict, "Unknown"),
             "verdict_description": verdict_descriptions.get(verdict.verdict, ""),
             "css_content": css_content,
+            "confirmed_findings": escaped_findings,
+            "has_failed_criteria": bool(verdict.failed_criteria) if hasattr(verdict, 'failed_criteria') else False,
         }
 
         # Render HTML

@@ -14,6 +14,10 @@ from pydantic import BaseModel, ConfigDict
 from schemas.common import PaginatedResponse
 
 
+# Valid scan status values (FIX 9: Added SCAN_ERROR for reliability tracking)
+VALID_SCAN_STATUSES = ("PENDING", "IN_PROGRESS", "COMPLETE", "FAILED", "SCAN_ERROR")
+
+
 class PageResponse(BaseModel):
     """Schema for page response.
 
@@ -27,7 +31,7 @@ class PageResponse(BaseModel):
         page_type: Classification (homepage, contact, product, etc.)
         in_sample: Whether this page is included in the audit sample
         crawl_status: Status of crawling (PENDING, IN_PROGRESS, COMPLETE, FAILED)
-        scan_status: Status of scanning (PENDING, IN_PROGRESS, COMPLETE, FAILED)
+        scan_status: Status of scanning (PENDING, IN_PROGRESS, COMPLETE, FAILED, SCAN_ERROR)
         http_status: HTTP response status code
         screenshot_key: MinIO storage key for page screenshot
         discovered_at: When the page was discovered during crawling

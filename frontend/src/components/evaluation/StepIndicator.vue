@@ -57,8 +57,11 @@
           <span v-else aria-hidden="true">{{ index + 1 }}</span>
         </div>
 
-        <!-- Step label -->
-        <span class="mt-2 text-xs font-medium" :class="stepLabelClasses(index)">
+        <!-- Step label (hidden on mobile) -->
+        <span
+          class="mt-2 hidden text-xs font-medium sm:block"
+          :class="stepLabelClasses(index)"
+        >
           {{ step.name }}
         </span>
       </li>

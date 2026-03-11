@@ -195,6 +195,9 @@
             <LoadingSpinner size="sm" />
             <span class="text-sm text-gray-600">Audit in progress...</span>
           </div>
+          <p class="text-xs text-gray-500">
+            Status updates automatically every 10 seconds.
+          </p>
           <RouterLink
             :to="`/evaluations/${evaluation.id}/findings`"
             class="inline-flex items-center rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
@@ -205,10 +208,46 @@
 
         <!-- REPORTING status -->
         <div v-else-if="evaluation.status === 'REPORTING'" class="space-y-4">
-          <div class="flex items-center space-x-2">
-            <LoadingSpinner size="sm" />
-            <span class="text-sm text-gray-600">Generating report...</span>
+          <div class="flex items-center space-x-3">
+            <div class="flex items-center space-x-2">
+              <LoadingSpinner size="sm" />
+              <span class="text-sm text-gray-600">Generating report...</span>
+            </div>
+            <RouterLink
+              :to="`/evaluations/${evaluation.id}/reports`"
+              class="inline-flex items-center rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
+            >
+              Go to Reports Page →
+            </RouterLink>
           </div>
+          <div class="rounded-md bg-green-50 p-4">
+            <div class="flex">
+              <div class="shrink-0">
+                <svg
+                  class="h-5 w-5 text-green-400"
+                  fill="currentColor"
+                  viewBox="0 0 20 20"
+                >
+                  <path
+                    fill-rule="evenodd"
+                    d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
+                    clip-rule="evenodd"
+                  />
+                </svg>
+              </div>
+              <div class="ml-3">
+                <p class="text-sm font-medium text-green-800">
+                  ✓ Audit complete — view your findings
+                </p>
+              </div>
+            </div>
+          </div>
+          <RouterLink
+            :to="`/evaluations/${evaluation.id}/findings`"
+            class="inline-flex items-center rounded-md px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
+          >
+            View Findings →
+          </RouterLink>
         </div>
 
         <!-- COMPLETE status -->
@@ -275,6 +314,7 @@ import EvaluationMeta from '../components/evaluation/EvaluationMeta.vue'
 import StepIndicator from '../components/evaluation/StepIndicator.vue'
 import AppLayout from '../components/layout/AppLayout.vue'
 import PageHeader from '../components/layout/PageHeader.vue'
+import VerdictBanner from '../components/reports/VerdictBanner.vue'
 import api from '../lib/api'
 import { useAuthStore } from '../stores/auth'
 import { useEvaluationsStore } from '../stores/evaluations'
@@ -290,6 +330,7 @@ const reportsStore = useReportsStore()
 
 const error = ref('')
 const activityLogExpanded = ref(false)
+const pollingInterval = ref(null)
 
 // Stats
 const stats = reactive({
@@ -376,6 +417,58 @@ async function handleDelete() {
   }
 }
 
+// Status polling for in-progress evaluations
+function shouldPoll() {
+  const status = evaluation.value?.status?.toUpperCase()
+  return (
+    status === 'AUDITING' || status === 'REPORTING' || status === 'EXPLORING'
+  )
+}
+
+function startPolling() {
+  if (pollingInterval.value) return
+  if (!shouldPoll()) return
+
+  pollingInterval.value = setInterval(async () => {
+    if (!evaluation.value) {
+      stopPolling()
+      return
+    }
+
+    try {
+      const previousStatus = evaluation.value.status
+      const updatedEvaluation = await evaluationsStore.fetchOne(
+        evaluation.value.id,
+      )
+
+      // Update only if status has changed
+      if (updatedEvaluation.status !== previousStatus) {
+        evaluation.value.status = updatedEvaluation.status
+      }
+
+      await fetchStats()
+
+      // Check if status changed and polling should stop
+      if (!shouldPoll()) {
+        stopPolling()
+        // Fetch latest report if now complete
+        if (evaluation.value.status === 'COMPLETE') {
+          await fetchLatestReport()
+        }
+      }
+    } catch (err) {
+      // Silent fail on polling errors
+    }
+  }, 10000) // Poll every 10 seconds
+}
+
+function stopPolling() {
+  if (pollingInterval.value) {
+    clearInterval(pollingInterval.value)
+    pollingInterval.value = null
+  }
+}
+
 // Lifecycle
 onMounted(async () => {
   const id = route.params.id
@@ -389,12 +482,18 @@ onMounted(async () => {
     await evaluationsStore.fetchOne(id)
     await fetchStats()
     await fetchLatestReport()
+
+    // Start polling if evaluation is in progress
+    if (shouldPoll()) {
+      startPolling()
+    }
   } catch (err) {
     error.value = err.message || 'Failed to load evaluation'
   }
 })
 
 onUnmounted(() => {
+  stopPolling()
   reportsStore.clearReports()
 })
 </script>

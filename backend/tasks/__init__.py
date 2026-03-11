@@ -26,6 +26,7 @@ celery_app = Celery(
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Celery Configuration
+# FIX 7: Updated for better scan throughput and reliability
 # ─────────────────────────────────────────────────────────────────────────────
 
 celery_app.conf.update(
@@ -46,6 +47,14 @@ celery_app.conf.update(
     # Worker settings
     worker_prefetch_multiplier=1,  # One task at a time per worker
     worker_max_tasks_per_child=100,  # Restart worker after 100 tasks
+    worker_concurrency=2,  # 2 concurrent tasks (not 1)
+
+    # Task time limits
+    task_soft_time_limit=300,  # 5 min soft limit — raises SoftTimeLimitExceeded
+    task_time_limit=360,       # 6 min hard limit — kills the task
+
+    # Task compression for large payloads
+    task_compression="gzip",
 
     # Task routing
     task_routes={

@@ -68,16 +68,18 @@ const statusConfig = {
   },
 }
 
-const defaultConfig = {
-  label: 'Unknown',
-  bgColor: 'bg-gray-100',
-  textColor: 'text-gray-700',
-  ringColor: 'ring-gray-500/20',
-}
-
 const config = computed(() => {
   const upperStatus = props.status?.toUpperCase() || ''
-  return statusConfig[upperStatus] || defaultConfig
+  if (statusConfig[upperStatus]) {
+    return statusConfig[upperStatus]
+  }
+  // Default fallback for unknown statuses - show raw value
+  return {
+    label: props.status || 'Unknown',
+    bgColor: 'bg-gray-100',
+    textColor: 'text-gray-700',
+    ringColor: 'ring-gray-500/20',
+  }
 })
 
 const displayLabel = computed(() => config.value.label)
