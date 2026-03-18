@@ -1,4 +1,4 @@
-# Accessibility Evaluation Platform
+# Accessibility Evaluation Platform Prototype
 
 End-to-end accessibility evaluation platform implementing WCAG-EM methodology.
 
@@ -177,10 +177,6 @@ The platform implements the [WCAG-EM methodology](https://www.w3.org/WAI/test-ev
 3. **Select Sample** — Choose representative pages for testing
 4. **Audit Sample** — Run axe-core accessibility tests
 5. **Report Findings** — Review verdicts and generate conformance report
-
-## Demo
-
-See [DEMO.md](./DEMO.md) for a step-by-step walkthrough using the W3C BAD demo site.
 
 ## Documentation
 
