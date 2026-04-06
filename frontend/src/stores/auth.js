@@ -19,7 +19,7 @@ export const useAuthStore = defineStore('auth', () => {
   const loading = ref(false)
 
   const error = ref(null)
-  
+
   const isAuthenticated = computed(() => !!user.value)
 
   const userEmail = computed(() => user.value?.email || null)
@@ -99,6 +99,12 @@ export const useAuthStore = defineStore('auth', () => {
       await firebaseSignOut(auth)
       user.value = null
       token.value = null
+
+      // Clear organisation state on logout
+      const { useOrgStore } = await import('./org')
+      const orgStore = useOrgStore()
+      orgStore.clear()
+      localStorage.removeItem('current_org_id')
     } catch (e) {
       error.value = 'Failed to sign out. Please try again.'
       console.error('Logout error:', e)

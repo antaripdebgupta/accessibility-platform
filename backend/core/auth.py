@@ -6,10 +6,10 @@ Provides dependencies for:
 """
 
 from datetime import datetime
-from typing import Tuple
+from typing import Optional, Tuple
 from uuid import UUID
 
-from fastapi import Depends, HTTPException, Path, status
+from fastapi import Depends, HTTPException, Path, status, Header
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -17,6 +17,7 @@ from sqlalchemy.orm import selectinload
 
 from core.firebase import verify_token
 from db.session import get_db
+from db.rls import set_rls_context
 from models.user import User
 from models.user_org_role import UserOrganisationRole
 from models.organisation import Organisation
@@ -28,6 +29,7 @@ security = HTTPBearer()
 async def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(security),
     db: AsyncSession = Depends(get_db),
+    x_organisation_id: Optional[str] = Header(None, alias="X-Organisation-ID"),
 ) -> User:
     """Extract and verify the bearer token and return User ORM object.
 
@@ -144,6 +146,50 @@ async def get_current_user(
         # Update last login time
         user.last_login_at = datetime.utcnow()
         await db.flush()
+
+    # If the user has organisation memberships, set RLS context for the
+    # request. Prefer X-Organisation-ID header if present (must be a UUID
+    # and user must be a member), otherwise fall back to the user's first
+    # organisation. SET LOCAL ensures the setting is scoped to this
+    # transaction only.
+    try:
+        if user.organisation_roles:
+            org_id = None
+            if x_organisation_id:
+                try:
+                    org_uuid = UUID(x_organisation_id)
+                except Exception:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail="Invalid X-Organisation-ID format. Must be a valid UUID.",
+                    )
+
+                # Verify membership
+                is_member = any(r.organisation_id == org_uuid for r in user.organisation_roles)
+                if not is_member:
+                    raise HTTPException(
+                        status_code=status.HTTP_403_FORBIDDEN,
+                        detail="You are not a member of this organisation",
+                    )
+
+                org_id = org_uuid
+            else:
+                org_id = user.organisation_roles[0].organisation_id
+
+            if org_id:
+                await set_rls_context(db, str(user.id), str(org_id))
+                # attach for convenience
+                setattr(user, "current_organisation_id", org_id)
+    except HTTPException:
+        # re-raise permission/validation errors
+        raise
+    except Exception:
+        # Any failures setting RLS context are fatal for security — do not
+        # silently continue. Wrap as 500.
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to initialise request security context",
+        )
 
     return user
 

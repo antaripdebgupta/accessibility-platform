@@ -20,6 +20,7 @@ if TYPE_CHECKING:
     from models.evaluation import EvaluationProject
     from models.finding import Finding
     from models.report import Report
+    from models.invitation import Invitation
 
 
 class User(Base):
@@ -87,6 +88,12 @@ class User(Base):
         "Report",
         back_populates="generated_by_user",
         foreign_keys="Report.generated_by",
+    )
+
+    sent_invitations: Mapped[List["Invitation"]] = relationship(
+        "Invitation",
+        back_populates="inviter",
+        foreign_keys="Invitation.invited_by",
     )
 
     def __repr__(self) -> str:

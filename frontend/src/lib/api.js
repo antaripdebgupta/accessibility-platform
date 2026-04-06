@@ -18,7 +18,7 @@ const api = axios.create({
   },
 })
 
-// Request Interceptor — Inject Authorization header
+// Request Interceptor — Inject Authorization header and X-Organisation-ID
 
 api.interceptors.request.use(
   async (config) => {
@@ -28,6 +28,18 @@ api.interceptors.request.use(
     // If we have a token, add it to the request
     if (authStore.token) {
       config.headers.Authorization = `Bearer ${authStore.token}`
+    }
+
+    // Add X-Organisation-ID header for multi-tenancy
+    // Lazy import to avoid circular dependency
+    try {
+      const { useOrgStore } = await import('../stores/org')
+      const orgStore = useOrgStore()
+      if (orgStore.current?.id) {
+        config.headers['X-Organisation-ID'] = orgStore.current.id
+      }
+    } catch {
+      // Org store not ready yet, skip header
     }
 
     return config

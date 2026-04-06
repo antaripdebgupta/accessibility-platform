@@ -50,6 +50,16 @@ class Settings(BaseSettings):
     default_max_pages: int = 15
     crawler_timeout_ms: int = 30000
 
+    # Email / SMTP
+    smtp_host: str = ""  # Empty or "disabled" skips sending emails
+    smtp_port: int = 587
+    smtp_user: str = ""
+    smtp_password: str = ""
+    smtp_from: str = "noreply@a11y-platform.dev"
+
+    # Frontend URL for invitation links
+    frontend_url: str = "http://localhost"
+
 
 @lru_cache()
 def get_settings() -> Settings:

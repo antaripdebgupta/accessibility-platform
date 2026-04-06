@@ -6,7 +6,7 @@
   >
     <div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
       <div class="flex h-16 items-center justify-between">
-        <!-- Logo -->
+        <!-- Logo and Org Switcher -->
         <div class="flex items-center">
           <router-link to="/" class="flex items-center space-x-2">
             <div
@@ -28,6 +28,100 @@
             </div>
             <span class="text-lg font-semibold text-gray-900">AccessHub</span>
           </router-link>
+
+          <!-- Organisation Switcher (Desktop) -->
+          <template v-if="authStore.user && orgStore.current">
+            <span class="mx-3 text-gray-300">/</span>
+            <Menu as="div" class="relative" v-slot="{ open: menuOpen }">
+              <MenuButton
+                class="flex items-center space-x-1 rounded-lg px-2 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-100 transition-colors"
+                @keydown.escape="closeOrgMenu"
+              >
+                <BuildingOfficeIcon class="h-4 w-4 text-gray-500" />
+                <span class="max-w-[120px] truncate">{{
+                  truncateOrgName(orgStore.current.name)
+                }}</span>
+                <ChevronDownIcon
+                  class="h-4 w-4 text-gray-500 transition-transform"
+                  :class="{ 'rotate-180': menuOpen }"
+                />
+              </MenuButton>
+              <transition
+                enter-active-class="transition duration-100 ease-out"
+                enter-from-class="transform scale-95 opacity-0"
+                enter-to-class="transform scale-100 opacity-100"
+                leave-active-class="transition duration-75 ease-in"
+                leave-from-class="transform scale-100 opacity-100"
+                leave-to-class="transform scale-95 opacity-0"
+              >
+                <MenuItems
+                  class="absolute left-0 mt-2 w-64 origin-top-left rounded-xl bg-white border border-gray-200 shadow-lg focus:outline-none p-1 z-50"
+                >
+                  <div
+                    class="px-3 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wider"
+                  >
+                    Your Organisations
+                  </div>
+                  <MenuItem
+                    v-for="org in orgStore.organisations"
+                    :key="org.id"
+                    v-slot="{ active }"
+                  >
+                    <button
+                      @click="handleOrgSwitch(org.id)"
+                      :class="[
+                        active ? 'bg-gray-100' : '',
+                        'flex w-full items-center justify-between px-3 py-2 text-sm text-gray-700 rounded-lg',
+                      ]"
+                    >
+                      <div class="flex items-center min-w-0">
+                        <BuildingOfficeIcon
+                          class="h-4 w-4 text-gray-400 mr-2 flex-shrink-0"
+                        />
+                        <span class="truncate">{{ org.name }}</span>
+                        <span
+                          class="ml-2 inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium"
+                          :class="getRoleBadgeClass(org.role)"
+                        >
+                          {{ org.role }}
+                        </span>
+                      </div>
+                      <CheckIcon
+                        v-if="org.id === orgStore.current?.id"
+                        class="h-4 w-4 text-primary-600 flex-shrink-0"
+                      />
+                    </button>
+                  </MenuItem>
+                  <div class="border-t border-gray-100 my-1"></div>
+                  <MenuItem v-slot="{ active }">
+                    <router-link
+                      to="/organisations/new"
+                      :class="[
+                        active ? 'bg-gray-100' : '',
+                        'flex items-center px-3 py-2 text-sm text-gray-700 rounded-lg',
+                      ]"
+                    >
+                      <PlusIcon class="h-4 w-4 text-gray-500 mr-2" />
+                      Create Organisation
+                    </router-link>
+                  </MenuItem>
+                  <div class="border-t border-gray-100 my-1"></div>
+                  <MenuItem v-slot="{ active }">
+                    <router-link
+                      :to="`/organisations/${orgStore.current?.id}`"
+                      :class="[
+                        active ? 'bg-gray-100' : '',
+                        'flex items-center px-3 py-2 text-sm text-gray-700 rounded-lg',
+                      ]"
+                    >
+                      <Cog6ToothIcon class="h-4 w-4 text-gray-500 mr-2" />
+                      Manage Members →
+                    </router-link>
+                  </MenuItem>
+                </MenuItems>
+              </transition>
+            </Menu>
+          </template>
         </div>
 
         <!-- Desktop Auth Buttons -->
@@ -119,6 +213,44 @@
     <!-- Mobile menu panel -->
     <DisclosurePanel class="md:hidden border-t border-gray-200">
       <div class="space-y-1 px-4 py-3">
+        <!-- Mobile Org Switcher -->
+        <template v-if="authStore.user && orgStore.current">
+          <div
+            class="px-3 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wider"
+          >
+            Organisation
+          </div>
+          <DisclosureButton
+            v-for="org in orgStore.organisations"
+            :key="org.id"
+            as="button"
+            @click="handleOrgSwitch(org.id)"
+            class="flex w-full items-center justify-between rounded-lg px-3 py-2 text-base font-medium text-gray-600 hover:bg-gray-100"
+            :class="{
+              'bg-primary-50 text-primary-700': org.id === orgStore.current?.id,
+            }"
+          >
+            <div class="flex items-center">
+              <BuildingOfficeIcon class="h-5 w-5 text-gray-400 mr-2" />
+              <span>{{ org.name }}</span>
+            </div>
+            <CheckIcon
+              v-if="org.id === orgStore.current?.id"
+              class="h-5 w-5 text-primary-600"
+            />
+          </DisclosureButton>
+          <DisclosureButton as="template">
+            <router-link
+              to="/organisations/new"
+              class="flex items-center rounded-lg px-3 py-2 text-base font-medium text-gray-600 hover:bg-gray-100"
+            >
+              <PlusIcon class="h-5 w-5 text-gray-400 mr-2" />
+              Create Organisation
+            </router-link>
+          </DisclosureButton>
+          <div class="border-t border-gray-200 my-2"></div>
+        </template>
+
         <DisclosureButton
           v-for="item in navigation"
           :key="item.name"
@@ -180,16 +312,22 @@ import {
 import {
   ArrowRightOnRectangleIcon,
   Bars3Icon,
+  BuildingOfficeIcon,
+  CheckIcon,
   ChevronDownIcon,
+  Cog6ToothIcon,
   HomeIcon,
+  PlusIcon,
   XMarkIcon,
 } from '@heroicons/vue/24/outline'
 import { computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
+import { useOrgStore } from '../stores/org'
 import BaseButton from './BaseButton.vue'
 
 const authStore = useAuthStore()
+const orgStore = useOrgStore()
 const router = useRouter()
 
 const navigation = [{ name: 'Home', href: '/' }]
@@ -199,6 +337,35 @@ const userInitials = computed(() => {
   return authStore.user.email.charAt(0).toUpperCase()
 })
 
+function truncateOrgName(name) {
+  if (!name) return ''
+  return name.length > 20 ? name.substring(0, 20) + '...' : name
+}
+
+function getRoleBadgeClass(role) {
+  const classes = {
+    owner: 'bg-purple-100 text-purple-700',
+    auditor: 'bg-blue-100 text-blue-700',
+    reviewer: 'bg-green-100 text-green-700',
+    viewer: 'bg-gray-100 text-gray-700',
+  }
+  return classes[role] || 'bg-gray-100 text-gray-700'
+}
+
+async function handleOrgSwitch(orgId) {
+  if (orgId !== orgStore.current?.id) {
+    try {
+      await orgStore.switchOrg(orgId)
+    } catch (err) {
+      console.error('Failed to switch organisation:', err)
+    }
+  }
+}
+
+function closeOrgMenu() {
+  // HeadlessUI handles this automatically via escape key
+}
+
 async function handleLogout() {
   try {
     await authStore.logout()
@@ -207,4 +374,8 @@ async function handleLogout() {
     console.error('Logout failed:', err)
   }
 }
+
+// Debug logs to verify state
+console.log('authStore.user:', authStore.user)
+console.log('orgStore.organisations:', orgStore.organisations)
 </script>

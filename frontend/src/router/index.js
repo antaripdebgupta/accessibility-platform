@@ -61,6 +61,23 @@ const routes = [
     meta: { requiresAuth: true },
   },
   {
+    path: '/organisations/new',
+    name: 'OrganisationCreate',
+    component: () => import('../pages/OrganisationCreatePage.vue'),
+    meta: { requiresAuth: true },
+  },
+  {
+    path: '/organisations/:id',
+    name: 'OrganisationSettings',
+    component: () => import('../pages/OrganisationPage.vue'),
+    meta: { requiresAuth: true },
+  },
+  {
+    path: '/invitations/:token',
+    name: 'InvitationAccept',
+    component: () => import('../pages/InvitationAcceptPage.vue'),
+  },
+  {
     path: '/:pathMatch(.*)*',
     name: 'NotFound',
     component: () => import('../pages/NotFoundPage.vue'),

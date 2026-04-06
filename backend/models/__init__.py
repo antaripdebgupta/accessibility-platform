@@ -8,6 +8,7 @@ metadata for Alembic autogenerate support.
 from models.organisation import Organisation
 from models.user import User
 from models.user_org_role import UserOrganisationRole
+from models.invitation import Invitation
 from models.wcag import WcagCriterion
 from models.evaluation import EvaluationProject
 from models.page import Page
@@ -19,6 +20,7 @@ __all__ = [
     "Organisation",
     "User",
     "UserOrganisationRole",
+    "Invitation",
     "WcagCriterion",
     "EvaluationProject",
     "Page",

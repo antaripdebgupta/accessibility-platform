@@ -110,7 +110,7 @@ import BaseCard from '@/components/BaseCard.vue'
 import BaseInput from '@/components/BaseInput.vue'
 import { signInWithEmailAndPassword } from 'firebase/auth'
 import { reactive, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { auth } from '../lib/firebase'
 import { validateAuthInput } from '../lib/validators/auth'
 
@@ -119,6 +119,7 @@ const password = ref('')
 const loading = ref(false)
 const error = ref('')
 const fieldErrors = reactive({ email: '', password: '' })
+const route = useRoute()
 const router = useRouter()
 
 function clearFieldErrors() {
@@ -159,7 +160,17 @@ async function onSubmit() {
   loading.value = true
   try {
     await signInWithEmailAndPassword(auth, email.value, password.value)
-    router.push({ name: 'Dashboard' })
+    // Check for redirect query param (e.g., from invitation accept flow)
+    const redirectPath = route.query.redirect
+    if (
+      redirectPath &&
+      typeof redirectPath === 'string' &&
+      redirectPath.startsWith('/')
+    ) {
+      router.push(redirectPath)
+    } else {
+      router.push({ name: 'Dashboard' })
+    }
   } catch (err) {
     error.value = friendlyFirebaseError(err)
   } finally {

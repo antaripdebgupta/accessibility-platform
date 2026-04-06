@@ -124,7 +124,8 @@ async def create_evaluation(
 ) -> EvaluationResponse:
     """Create a new evaluation project.
 
-    Creates a new evaluation project in the user's first organisation.
+    Creates a new evaluation project in the user's current organisation
+    (determined by X-Organisation-ID header or user's first org).
     If the user doesn't belong to any organisation, returns a 400 error.
 
     Syncs the created evaluation to Firestore as a background task.
@@ -136,18 +137,19 @@ async def create_evaluation(
     Returns:
         EvaluationResponse: Created evaluation project
     """
-    # Get user's first organisation (primary org)
+    # Get user's current organisation (set by get_current_user via X-Organisation-ID header or first org)
     if not user.organisation_roles:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="You must belong to an organisation to create evaluations. Please contact an administrator.",
         )
 
-    org_role = user.organisation_roles[0]
+    # Use the organisation from RLS context if available, otherwise fall back to first org
+    org_id = getattr(user, "current_organisation_id", None) or user.organisation_roles[0].organisation_id
 
     # Create the evaluation project
     evaluation = EvaluationProject(
-        organisation_id=org_role.organisation_id,
+        organisation_id=org_id,
         created_by=user.id,
         title=data.title,
         target_url=data.target_url,
@@ -167,7 +169,7 @@ async def create_evaluation(
         entity_type="evaluation",
         entity_id=str(evaluation.id),
         user_id=str(user.id),
-        organisation_id=str(org_role.organisation_id),
+        organisation_id=str(org_id),
         after_state={
             "title": evaluation.title,
             "target_url": evaluation.target_url,
