@@ -19,7 +19,7 @@ from sqlalchemy import select, and_, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from core.auth import get_current_user
+from core.auth import AuthenticatedUser, require_permission
 from core.email import send_invitation_email
 from core.firebase import verify_token
 from db.session import get_db
@@ -51,20 +51,6 @@ async def get_user_role_in_org(
     return result.scalar_one_or_none()
 
 
-async def require_owner(
-    org_id: UUID,
-    user: User,
-    db: AsyncSession,
-) -> None:
-    """Verify user is an owner of the organisation."""
-    user_role = await get_user_role_in_org(db, user.id, org_id)
-    if not user_role or user_role.role != "owner":
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only organisation owners can manage invitations",
-        )
-
-
 async def get_organisation_or_404(db: AsyncSession, org_id: UUID) -> Organisation:
     """Fetch organisation by ID or raise 404."""
     stmt = select(Organisation).where(Organisation.id == org_id)
@@ -87,7 +73,7 @@ async def create_invitation(
     org_id: UUID,
     data: InvitationCreate,
     background_tasks: BackgroundTasks,
-    user: User = Depends(get_current_user),
+    user: AuthenticatedUser = Depends(require_permission("org.invite")),
     db: AsyncSession = Depends(get_db),
 ) -> InvitationResponse:
     """Create a new invitation to join the organisation.
@@ -107,7 +93,6 @@ async def create_invitation(
         404: If organisation not found
         409: If user already in org or pending invitation exists
     """
-    await require_owner(org_id, user, db)
     org = await get_organisation_or_404(db, org_id)
 
     email_lower = data.email.lower()
@@ -178,7 +163,7 @@ async def create_invitation(
 )
 async def list_invitations(
     org_id: UUID,
-    user: User = Depends(get_current_user),
+    user: AuthenticatedUser = Depends(require_permission("org.invite")),
     db: AsyncSession = Depends(get_db),
 ) -> List[InvitationResponse]:
     """List all invitations for an organisation.
@@ -195,7 +180,6 @@ async def list_invitations(
         403: If user is not an owner
         404: If organisation not found
     """
-    await require_owner(org_id, user, db)
     await get_organisation_or_404(db, org_id)
 
     stmt = (
@@ -228,7 +212,7 @@ async def list_invitations(
 async def revoke_invitation(
     org_id: UUID,
     invitation_id: UUID,
-    user: User = Depends(get_current_user),
+    user: AuthenticatedUser = Depends(require_permission("org.invite")),
     db: AsyncSession = Depends(get_db),
 ) -> None:
     """Revoke a pending invitation.
@@ -243,7 +227,6 @@ async def revoke_invitation(
         403: If user is not an owner
         404: If organisation or invitation not found
     """
-    await require_owner(org_id, user, db)
     await get_organisation_or_404(db, org_id)
 
     stmt = select(Invitation).where(

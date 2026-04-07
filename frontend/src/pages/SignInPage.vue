@@ -113,6 +113,7 @@ import { reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { auth } from '../lib/firebase'
 import { validateAuthInput } from '../lib/validators/auth'
+import { useOrgStore } from '@/stores/org'
 
 const email = ref('')
 const password = ref('')
@@ -121,6 +122,7 @@ const error = ref('')
 const fieldErrors = reactive({ email: '', password: '' })
 const route = useRoute()
 const router = useRouter()
+const orgStore = useOrgStore()
 
 function clearFieldErrors() {
   fieldErrors.email = ''
@@ -160,6 +162,8 @@ async function onSubmit() {
   loading.value = true
   try {
     await signInWithEmailAndPassword(auth, email.value, password.value)
+    // Fetch organisations to ensure RBAC permissions are loaded
+    await orgStore.fetchMyOrgs()
     // Check for redirect query param (e.g., from invitation accept flow)
     const redirectPath = route.query.redirect
     if (

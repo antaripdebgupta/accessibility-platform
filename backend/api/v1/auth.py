@@ -6,8 +6,7 @@ Provides endpoints for user authentication and profile management.
 
 from fastapi import APIRouter, Depends
 
-from core.auth import get_current_user
-from models.user import User
+from core.auth import AuthenticatedUser, get_current_user
 from schemas.auth import OrgMembership, UserResponse
 
 router = APIRouter(tags=["Auth"])
@@ -15,15 +14,16 @@ router = APIRouter(tags=["Auth"])
 
 @router.post("/me", response_model=UserResponse)
 async def get_me(
-    user: User = Depends(get_current_user),
+    user: AuthenticatedUser = Depends(get_current_user),
 ) -> UserResponse:
     """Get current authenticated user profile with organisation memberships.
 
     Returns the user's profile information including all organisations
-    they belong to and their role in each organisation.
+    they belong to, their role in each organisation, and their
+    permissions for the current organisation.
 
     Returns:
-        UserResponse: User profile with organisation memberships
+        UserResponse: User profile with organisation memberships and permissions
     """
     # Build list of organisation memberships
     organisations = [
@@ -40,4 +40,7 @@ async def get_me(
         email=user.email,
         display_name=user.display_name,
         organisations=organisations,
+        current_organisation_id=user.current_organisation_id,
+        role=user.role,
+        permissions=list(user.permissions),
     )

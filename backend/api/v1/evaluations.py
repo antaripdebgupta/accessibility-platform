@@ -18,11 +18,10 @@ from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from core.auth import get_current_user, get_current_org, require_role
+from core.auth import get_current_user, require_permission, AuthenticatedUser
 from core.audit import log_action, AuditAction
 from core.firestore import sync_evaluation_to_firestore, delete_evaluation_from_firestore
 from db.session import get_db
-from models.user import User
 from models.user_org_role import UserOrganisationRole
 from models.evaluation import EvaluationProject
 from models.organisation import Organisation
@@ -37,7 +36,7 @@ from schemas.evaluation import (
 router = APIRouter(tags=["Evaluations"])
 
 
-async def _get_user_org_ids(user: User) -> list[UUID]:
+async def _get_user_org_ids(user: AuthenticatedUser) -> list[UUID]:
     """Get list of organisation IDs the user belongs to."""
     return [role.organisation_id for role in user.organisation_roles]
 
@@ -47,7 +46,7 @@ async def list_evaluations(
     status_filter: Optional[str] = Query(None, alias="status", description="Filter by status"),
     skip: int = Query(0, ge=0, description="Number of records to skip"),
     limit: int = Query(20, ge=1, le=100, description="Maximum number of records to return"),
-    user: User = Depends(get_current_user),
+    user: AuthenticatedUser = Depends(require_permission("evaluation.read")),
     db: AsyncSession = Depends(get_db),
 ) -> PaginatedResponse[EvaluationListItem]:
     """List evaluation projects for the user's organisations.
@@ -119,7 +118,7 @@ async def list_evaluations(
 async def create_evaluation(
     data: EvaluationCreate,
     background_tasks: BackgroundTasks,
-    user: User = Depends(get_current_user),
+    user: AuthenticatedUser = Depends(require_permission("evaluation.create")),
     db: AsyncSession = Depends(get_db),
 ) -> EvaluationResponse:
     """Create a new evaluation project.
@@ -218,7 +217,7 @@ async def create_evaluation(
 @router.get("/{evaluation_id}", response_model=EvaluationResponse)
 async def get_evaluation(
     evaluation_id: UUID,
-    user: User = Depends(get_current_user),
+    user: AuthenticatedUser = Depends(require_permission("evaluation.read")),
     db: AsyncSession = Depends(get_db),
 ) -> EvaluationResponse:
     """Get a single evaluation project by ID.
@@ -278,7 +277,7 @@ async def update_evaluation(
     evaluation_id: UUID,
     data: EvaluationUpdate,
     background_tasks: BackgroundTasks,
-    user: User = Depends(get_current_user),
+    user: AuthenticatedUser = Depends(require_permission("evaluation.update")),
     db: AsyncSession = Depends(get_db),
 ) -> EvaluationResponse:
     """Update an evaluation project.
@@ -399,7 +398,7 @@ async def update_evaluation(
 async def delete_evaluation(
     evaluation_id: UUID,
     background_tasks: BackgroundTasks,
-    user: User = Depends(require_role("owner")),
+    user: AuthenticatedUser = Depends(require_permission("evaluation.delete")),
     db: AsyncSession = Depends(get_db),
 ) -> None:
     """Delete an evaluation project (soft delete).
@@ -490,7 +489,7 @@ WORKFLOW_STATUSES = ["EXPLORING", "AUDITING"]
 async def advance_evaluation_status(
     evaluation_id: UUID,
     background_tasks: BackgroundTasks,
-    user: User = Depends(get_current_user),
+    user: AuthenticatedUser = Depends(require_permission("evaluation.advance")),
     db: AsyncSession = Depends(get_db),
 ) -> EvaluationResponse:
     """Advance evaluation to the next logical status.

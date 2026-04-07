@@ -127,6 +127,7 @@ import { reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { auth } from '../lib/firebase'
 import { validateAuthInput } from '../lib/validators/auth'
+import { useOrgStore } from '@/stores/org'
 
 const email = ref('')
 const password = ref('')
@@ -134,6 +135,7 @@ const loading = ref(false)
 const error = ref('')
 const fieldErrors = reactive({ email: '', password: '' })
 const router = useRouter()
+const orgStore = useOrgStore()
 
 function clearFieldErrors() {
   fieldErrors.email = ''
@@ -171,6 +173,8 @@ async function onSubmit() {
   loading.value = true
   try {
     await createUserWithEmailAndPassword(auth, email.value, password.value)
+    // Fetch organisations to ensure RBAC permissions are loaded
+    await orgStore.fetchMyOrgs()
     router.push({ name: 'Dashboard' })
   } catch (err) {
     error.value = friendlyFirebaseError(err)

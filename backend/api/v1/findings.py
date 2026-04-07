@@ -14,14 +14,14 @@ from sqlalchemy import select, func, and_, case
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from core.auth import get_current_user, require_role
+from core.auth import get_current_user, require_permission, AuthenticatedUser
 from core.audit import log_action, AuditAction
 from core.config import settings
+from core.permissions import can
 from db.session import get_db
 from models.evaluation import EvaluationProject
 from models.finding import Finding
 from models.page import Page
-from models.user import User
 from models.wcag import WcagCriterion
 from schemas.common import PaginatedResponse
 from schemas.finding import (
@@ -37,7 +37,7 @@ router = APIRouter(tags=["Findings"])
 
 async def get_evaluation_for_user(
     evaluation_id: UUID,
-    user: User,
+    user: AuthenticatedUser,
     db: AsyncSession,
 ) -> EvaluationProject:
     """
@@ -134,7 +134,7 @@ async def list_findings(
     criterion_id: Optional[str] = Query(None, description="Filter by WCAG criterion ID (e.g., 1.1.1)"),
     skip: int = Query(0, ge=0, description="Pagination offset"),
     limit: int = Query(50, ge=1, le=200, description="Max results per page"),
-    user: User = Depends(get_current_user),
+    user: AuthenticatedUser = Depends(require_permission("finding.read")),
     db: AsyncSession = Depends(get_db),
 ) -> PaginatedResponse[FindingResponse]:
     """
@@ -251,7 +251,7 @@ async def list_findings(
 )
 async def get_findings_summary(
     evaluation_id: UUID,
-    user: User = Depends(get_current_user),
+    user: AuthenticatedUser = Depends(require_permission("finding.read")),
     db: AsyncSession = Depends(get_db),
 ) -> FindingSummary:
     """
@@ -307,7 +307,7 @@ async def get_findings_summary(
 async def create_manual_finding(
     evaluation_id: UUID,
     data: FindingCreate,
-    user: User = Depends(require_role("owner", "auditor")),
+    user: AuthenticatedUser = Depends(require_permission("finding.create_manual")),
     db: AsyncSession = Depends(get_db),
 ) -> FindingResponse:
     """
@@ -398,7 +398,7 @@ async def create_manual_finding(
 )
 async def get_finding(
     finding_id: UUID,
-    user: User = Depends(get_current_user),
+    user: AuthenticatedUser = Depends(require_permission("finding.read")),
     db: AsyncSession = Depends(get_db),
 ) -> FindingResponse:
     """
@@ -454,13 +454,14 @@ async def get_finding(
 async def update_finding(
     finding_id: UUID,
     data: FindingUpdate,
-    user: User = Depends(require_role("owner", "auditor", "reviewer")),
+    user: AuthenticatedUser = Depends(require_permission("finding.confirm")),
     db: AsyncSession = Depends(get_db),
 ) -> FindingResponse:
     """
     Update a finding's status, reviewer note, or remediation.
 
     Requires owner, auditor, or reviewer role.
+    Reviewer can only confirm or dismiss - reopen requires owner/auditor.
     Sets reviewed_by to the current user and updates updated_at.
 
     Args:
@@ -470,6 +471,14 @@ async def update_finding(
     Returns:
         Updated finding with full details
     """
+    # Check if user is trying to reopen - requires elevated permission
+    if data.status == "OPEN":
+        if not user.can("finding.reopen"):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Reopening findings requires owner or auditor role",
+            )
+
     # Fetch finding with relationships
     stmt = (
         select(Finding)

@@ -12,13 +12,12 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.auth import get_current_user
+from core.auth import AuthenticatedUser, require_permission
 from core.config import settings
 from core.logging import get_logger
 from db.session import get_db
 from models.evaluation import EvaluationProject
 from models.report import Report
-from models.user import User
 from schemas.report import (
     ReportCreate,
     ReportGenerateResponse,
@@ -35,7 +34,7 @@ router = APIRouter(tags=["Reports"])
 
 async def get_evaluation_for_user(
     evaluation_id: UUID,
-    user: User,
+    user: AuthenticatedUser,
     db: AsyncSession,
 ) -> EvaluationProject:
     """
@@ -110,7 +109,7 @@ def build_report_response(report: Report, include_download_url: bool = True) -> 
 async def create_report(
     evaluation_id: UUID,
     body: Optional[ReportCreate] = None,
-    user: User = Depends(get_current_user),
+    user: AuthenticatedUser = Depends(require_permission("report.generate")),
     db: AsyncSession = Depends(get_db),
 ) -> ReportGenerateResponse:
     """
@@ -187,7 +186,7 @@ async def create_report(
 )
 async def list_reports(
     evaluation_id: UUID,
-    user: User = Depends(get_current_user),
+    user: AuthenticatedUser = Depends(require_permission("report.read")),
     db: AsyncSession = Depends(get_db),
 ) -> ReportListResponse:
     """
@@ -231,7 +230,7 @@ async def list_reports(
 )
 async def get_latest_report(
     evaluation_id: UUID,
-    user: User = Depends(get_current_user),
+    user: AuthenticatedUser = Depends(require_permission("report.read")),
     db: AsyncSession = Depends(get_db),
 ) -> ReportResponse:
     """

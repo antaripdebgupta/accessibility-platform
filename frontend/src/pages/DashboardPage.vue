@@ -6,6 +6,7 @@
       subtitle="Manage your WCAG accessibility evaluation projects"
     >
       <RouterLink
+        v-if="canCreateEvaluation"
         to="/evaluations/new"
         class="inline-flex items-center rounded-md px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
       >
@@ -72,9 +73,13 @@
     <EmptyState
       v-else-if="!evaluationsStore.hasEvaluations"
       title="No evaluations yet"
-      message="Get started by creating a new WCAG accessibility evaluation project."
-      actionLabel="Create your first evaluation"
-      @action="navigateToCreate"
+      :message="
+        canCreateEvaluation
+          ? 'Get started by creating a new WCAG accessibility evaluation project.'
+          : 'No evaluations have been created for this organisation yet.'
+      "
+      :actionLabel="canCreateEvaluation ? 'Create your first evaluation' : null"
+      @action="canCreateEvaluation ? navigateToCreate() : null"
     >
       <template #icon>
         <svg
@@ -123,12 +128,14 @@ import LoadingSpinner from '../components/common/LoadingSpinner.vue'
 import EvaluationCard from '../components/evaluation/EvaluationCard.vue'
 import AppLayout from '../components/layout/AppLayout.vue'
 import PageHeader from '../components/layout/PageHeader.vue'
+import { usePermissions } from '../composables/usePermissions'
 import { useAuthStore } from '../stores/auth'
 import { useEvaluationsStore } from '../stores/evaluations'
 
 const router = useRouter()
 const authStore = useAuthStore()
 const evaluationsStore = useEvaluationsStore()
+const { canCreateEvaluation } = usePermissions()
 
 function navigateToCreate() {
   router.push('/evaluations/new')

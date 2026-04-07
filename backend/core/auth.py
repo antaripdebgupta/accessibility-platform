@@ -3,10 +3,12 @@
 Provides dependencies for:
 - get_current_user: Verifies Bearer token and returns/creates User ORM object
 - get_current_org: Returns user, organisation, and role for evaluation routes
+- require_role: Role-based access control dependency factory
+- require_permission: Permission-based access control dependency factory
 """
 
 from datetime import datetime
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Set
 from uuid import UUID
 
 from fastapi import Depends, HTTPException, Path, status, Header
@@ -16,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from core.firebase import verify_token
+from core.permissions import Role, can, get_permissions_for_role
 from db.session import get_db
 from db.rls import set_rls_context
 from models.user import User
@@ -26,12 +29,76 @@ from models.evaluation import EvaluationProject
 security = HTTPBearer()
 
 
+class AuthenticatedUser:
+    """
+    Wrapper class for authenticated user with role and permissions.
+
+    This class wraps the User ORM object and adds:
+    - current_organisation_id: The active organisation ID
+    - role: The user's role in the current organisation
+    - permissions: Set of action strings the user can perform
+    """
+
+    def __init__(
+        self,
+        user: User,
+        current_organisation_id: Optional[UUID] = None,
+        role: Optional[str] = None,
+    ):
+        self._user = user
+        self.current_organisation_id = current_organisation_id
+        self.role = role
+        self._permissions: Optional[Set[str]] = None
+
+    @property
+    def permissions(self) -> Set[str]:
+        """Get the set of permissions for this user's role."""
+        if self._permissions is None:
+            if self.role:
+                self._permissions = get_permissions_for_role(self.role)
+            else:
+                self._permissions = set()
+        return self._permissions
+
+    def can(self, action: str) -> bool:
+        """Check if the user can perform the given action."""
+        return action in self.permissions
+
+    # Proxy all User attributes
+    def __getattr__(self, name):
+        return getattr(self._user, name)
+
+    @property
+    def id(self):
+        return self._user.id
+
+    @property
+    def email(self):
+        return self._user.email
+
+    @property
+    def display_name(self):
+        return self._user.display_name
+
+    @property
+    def firebase_uid(self):
+        return self._user.firebase_uid
+
+    @property
+    def organisation_roles(self):
+        return self._user.organisation_roles
+
+    @property
+    def last_login_at(self):
+        return self._user.last_login_at
+
+
 async def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(security),
     db: AsyncSession = Depends(get_db),
     x_organisation_id: Optional[str] = Header(None, alias="X-Organisation-ID"),
-) -> User:
-    """Extract and verify the bearer token and return User ORM object.
+) -> AuthenticatedUser:
+    """Extract and verify the bearer token and return AuthenticatedUser.
 
     If the user doesn't exist in the database (first login), creates a new user record.
     Updates last_login_at timestamp on each authentication.
@@ -39,9 +106,10 @@ async def get_current_user(
     Args:
         credentials: HTTP Bearer token from Authorization header
         db: Async database session
+        x_organisation_id: Optional header to specify active organisation
 
     Returns:
-        User ORM object with organisation_roles eagerly loaded
+        AuthenticatedUser object with user data, role, and permissions
 
     Raises:
         HTTPException(401): If token is missing, invalid, or expired
@@ -147,14 +215,12 @@ async def get_current_user(
         user.last_login_at = datetime.utcnow()
         await db.flush()
 
-    # If the user has organisation memberships, set RLS context for the
-    # request. Prefer X-Organisation-ID header if present (must be a UUID
-    # and user must be a member), otherwise fall back to the user's first
-    # organisation. SET LOCAL ensures the setting is scoped to this
-    # transaction only.
+    # Determine the current organisation and user's role
+    current_org_id: Optional[UUID] = None
+    current_role: Optional[str] = None
+
     try:
         if user.organisation_roles:
-            org_id = None
             if x_organisation_id:
                 try:
                     org_uuid = UUID(x_organisation_id)
@@ -164,41 +230,50 @@ async def get_current_user(
                         detail="Invalid X-Organisation-ID format. Must be a valid UUID.",
                     )
 
-                # Verify membership
-                is_member = any(r.organisation_id == org_uuid for r in user.organisation_roles)
-                if not is_member:
+                # Verify membership and get role
+                for r in user.organisation_roles:
+                    if r.organisation_id == org_uuid:
+                        current_org_id = org_uuid
+                        current_role = r.role
+                        break
+
+                if current_org_id is None:
                     raise HTTPException(
                         status_code=status.HTTP_403_FORBIDDEN,
                         detail="You are not a member of this organisation",
                     )
-
-                org_id = org_uuid
             else:
-                org_id = user.organisation_roles[0].organisation_id
+                # Fall back to first organisation
+                first_role = user.organisation_roles[0]
+                current_org_id = first_role.organisation_id
+                current_role = first_role.role
 
-            if org_id:
-                await set_rls_context(db, str(user.id), str(org_id))
-                # attach for convenience
-                setattr(user, "current_organisation_id", org_id)
+            # Set RLS context
+            if current_org_id:
+                await set_rls_context(db, str(user.id), str(current_org_id))
+
     except HTTPException:
         # re-raise permission/validation errors
         raise
     except Exception:
-        # Any failures setting RLS context are fatal for security — do not
-        # silently continue. Wrap as 500.
+        # Any failures setting RLS context are fatal for security
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to initialise request security context",
         )
 
-    return user
+    return AuthenticatedUser(
+        user=user,
+        current_organisation_id=current_org_id,
+        role=current_role,
+    )
 
 
 async def get_current_org(
     evaluation_id: UUID = Path(..., description="Evaluation project ID"),
-    user: User = Depends(get_current_user),
+    user: AuthenticatedUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-) -> Tuple[User, Organisation, str]:
+) -> Tuple[AuthenticatedUser, Organisation, str]:
     """Get user, organisation, and role for an evaluation project.
 
     Verifies that the user has access to the evaluation's organisation.
@@ -243,6 +318,7 @@ async def get_current_org(
             detail="You do not have access to this evaluation project",
         )
 
+
     return user, evaluation.organisation, org_role.role
 
 
@@ -251,44 +327,100 @@ def require_role(*allowed_roles: str):
     Dependency factory for role-based access control.
 
     Creates a FastAPI dependency that checks if the current user has one of
-    the allowed roles in any of their organisations.
+    the allowed roles in their current organisation.
 
     Usage:
         @router.delete("/resource/{id}")
         async def delete_resource(
-            user: User = Depends(require_role("owner")),
-            ...
-        ):
-            ...
-
-        @router.post("/resource")
-        async def create_resource(
-            user: User = Depends(require_role("owner", "auditor")),
+            user: AuthenticatedUser = Depends(require_role("owner")),
             ...
         ):
             ...
 
     Args:
-        *allowed_roles: Role names that are permitted (e.g., "owner", "auditor", "reviewer", "viewer")
+        *allowed_roles: Role names that are permitted (e.g., "owner", "auditor")
 
     Returns:
         FastAPI dependency function
     """
-    async def check_role(
-        current_user: User = Depends(get_current_user),
-    ) -> User:
-        """Check if the user has one of the allowed roles."""
-        # Check if user has any of the required roles in any organisation
-        for role_entry in current_user.organisation_roles:
-            if role_entry.role in allowed_roles:
-                return current_user
+    # Convert string roles to Role enum values for comparison
+    allowed_role_enums = set()
+    for role_str in allowed_roles:
+        try:
+            allowed_role_enums.add(Role(role_str))
+        except ValueError:
+            # Invalid role string, skip
+            pass
 
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail=f"Insufficient permissions. This action requires one of the following roles: {', '.join(allowed_roles)}",
-        )
+    async def check_role(
+        current_user: AuthenticatedUser = Depends(get_current_user),
+    ) -> AuthenticatedUser:
+        """Check if the user has one of the allowed roles."""
+        if current_user.role is None:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="No organisation context. Please select an organisation.",
+            )
+
+        try:
+            user_role = Role(current_user.role)
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Invalid role: {current_user.role}",
+            )
+
+        if user_role not in allowed_role_enums:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Insufficient permissions. This action requires one of the following roles: {', '.join(allowed_roles)}",
+            )
+
+        return current_user
 
     return check_role
+
+
+def require_permission(action: str):
+    """
+    Dependency factory for permission-based access control.
+
+    Creates a FastAPI dependency that checks if the current user has
+    permission to perform the specified action based on their role.
+
+    Usage:
+        @router.post("/evaluations")
+        async def create_evaluation(
+            user: AuthenticatedUser = Depends(require_permission("evaluation.create")),
+            ...
+        ):
+            ...
+
+    Args:
+        action: The action string to check (e.g., "evaluation.create")
+
+    Returns:
+        FastAPI dependency function
+    """
+    async def check_permission(
+        current_user: AuthenticatedUser = Depends(get_current_user),
+    ) -> AuthenticatedUser:
+        """Check if the user has permission to perform the action."""
+        if current_user.role is None:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="No organisation context. Please select an organisation.",
+            )
+
+        if not can(current_user.role, action):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Role '{current_user.role}' is not permitted to perform '{action}'",
+            )
+
+        return current_user
+
+    return check_permission
 
 
 def require_org_role(*allowed_roles: str):
@@ -303,7 +435,7 @@ def require_org_role(*allowed_roles: str):
         async def update_finding(
             evaluation_id: UUID,
             finding_id: UUID,
-            user: User = Depends(require_org_role("owner", "auditor", "reviewer")),
+            user: AuthenticatedUser = Depends(require_org_role("owner", "auditor", "reviewer")),
             ...
         ):
             ...
@@ -312,13 +444,21 @@ def require_org_role(*allowed_roles: str):
         *allowed_roles: Role names that are permitted
 
     Returns:
-        FastAPI dependency function that returns (User, Organisation, role)
+        FastAPI dependency function that returns (AuthenticatedUser, Organisation, role)
     """
+    # Convert string roles to Role enum values for comparison
+    allowed_role_enums = set()
+    for role_str in allowed_roles:
+        try:
+            allowed_role_enums.add(Role(role_str))
+        except ValueError:
+            pass
+
     async def check_org_role(
         evaluation_id: UUID = Path(..., description="Evaluation project ID"),
-        current_user: User = Depends(get_current_user),
+        current_user: AuthenticatedUser = Depends(get_current_user),
         db: AsyncSession = Depends(get_db),
-    ) -> Tuple[User, Organisation, str]:
+    ) -> Tuple[AuthenticatedUser, Organisation, str]:
         """Check if the user has one of the allowed roles in the evaluation's organisation."""
         # Fetch the evaluation project
         stmt = (
@@ -349,7 +489,15 @@ def require_org_role(*allowed_roles: str):
             )
 
         # Check if user's role is in the allowed roles
-        if org_role.role not in allowed_roles:
+        try:
+            user_role_enum = Role(org_role.role)
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Invalid role: {org_role.role}",
+            )
+
+        if user_role_enum not in allowed_role_enums:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail=f"Insufficient permissions. This action requires one of the following roles: {', '.join(allowed_roles)}",
@@ -358,4 +506,3 @@ def require_org_role(*allowed_roles: str):
         return current_user, evaluation.organisation, org_role.role
 
     return check_org_role
-

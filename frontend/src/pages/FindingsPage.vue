@@ -44,6 +44,7 @@
       >
         <div class="flex items-center space-x-3">
           <button
+            v-if="canCreateManualFinding"
             type="button"
             class="inline-flex items-center rounded-md border border-gray-300 bg-white px-3 py-2 text-sm font-semibold text-gray-700 shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
             @click="showManualModal = true"
@@ -364,6 +365,7 @@ import FindingsTable from '../components/findings/FindingsTable.vue'
 import ManualFindingModal from '../components/findings/ManualFindingModal.vue'
 import AppLayout from '../components/layout/AppLayout.vue'
 import PageHeader from '../components/layout/PageHeader.vue'
+import { usePermissions } from '../composables/usePermissions'
 import api from '../lib/api'
 import { useEvaluationsStore } from '../stores/evaluations'
 import { useFindingsStore } from '../stores/findings'
@@ -372,6 +374,8 @@ const route = useRoute()
 const router = useRouter()
 const evaluationsStore = useEvaluationsStore()
 const findingsStore = useFindingsStore()
+const { canCreateManualFinding, canConfirmFinding, canDismissFinding } =
+  usePermissions()
 
 // Reactive state
 const loading = ref(true)

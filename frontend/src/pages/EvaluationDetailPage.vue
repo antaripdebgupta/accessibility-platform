@@ -273,7 +273,10 @@
       </div>
 
       <!-- Activity Log Section (collapsible) -->
-      <div class="mb-8 rounded-lg border border-gray-200 bg-white">
+      <div
+        v-if="canViewAuditLog"
+        class="mb-8 rounded-lg border border-gray-200 bg-white"
+      >
         <button
           type="button"
           class="flex w-full items-center justify-between p-6 text-left"
@@ -315,6 +318,7 @@ import StepIndicator from '../components/evaluation/StepIndicator.vue'
 import AppLayout from '../components/layout/AppLayout.vue'
 import PageHeader from '../components/layout/PageHeader.vue'
 import VerdictBanner from '../components/reports/VerdictBanner.vue'
+import { usePermissions } from '../composables/usePermissions'
 import api from '../lib/api'
 import { useAuthStore } from '../stores/auth'
 import { useEvaluationsStore } from '../stores/evaluations'
@@ -327,6 +331,7 @@ const authStore = useAuthStore()
 const evaluationsStore = useEvaluationsStore()
 const findingsStore = useFindingsStore()
 const reportsStore = useReportsStore()
+const { canDeleteEvaluation, canViewAuditLog } = usePermissions()
 
 const error = ref('')
 const activityLogExpanded = ref(false)
@@ -344,7 +349,11 @@ const stats = reactive({
 const evaluation = computed(() => evaluationsStore.current)
 
 const canDelete = computed(() => {
-  return evaluation.value && evaluation.value.status !== 'DELETED'
+  return (
+    evaluation.value &&
+    evaluation.value.status !== 'DELETED' &&
+    canDeleteEvaluation.value
+  )
 })
 
 const latestReport = computed(() => {

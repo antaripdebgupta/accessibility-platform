@@ -218,12 +218,17 @@
 
             <!-- Generate Button -->
             <button
+              v-if="canGenerateReport"
               type="button"
               class="mt-8 inline-flex items-center rounded-md bg-indigo-600 px-6 py-3 text-base font-semibold text-white shadow-sm hover:bg-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
               @click="startGeneration"
             >
               Generate Report →
             </button>
+            <p v-else class="mt-8 text-sm text-gray-500">
+              You don't have permission to generate reports. Contact an auditor
+              or owner.
+            </p>
 
             <!-- Options Toggle -->
             <div class="mt-6">
@@ -445,7 +450,7 @@
         </div>
 
         <!-- Generate New Report Button -->
-        <div class="border-t border-gray-200 pt-6">
+        <div v-if="canGenerateReport" class="border-t border-gray-200 pt-6">
           <button
             type="button"
             class="inline-flex items-center rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
@@ -484,6 +489,7 @@ import FailedCriteriaList from '../components/reports/FailedCriteriaList.vue'
 import ReportCard from '../components/reports/ReportCard.vue'
 import ReportStats from '../components/reports/ReportStats.vue'
 import VerdictBanner from '../components/reports/VerdictBanner.vue'
+import { usePermissions } from '../composables/usePermissions'
 import api from '../lib/api'
 import { useEvaluationsStore } from '../stores/evaluations'
 import { useFindingsStore } from '../stores/findings'
@@ -495,6 +501,7 @@ const evaluationsStore = useEvaluationsStore()
 const reportsStore = useReportsStore()
 const findingsStore = useFindingsStore()
 const tasksStore = useTasksStore()
+const { canGenerateReport } = usePermissions()
 
 // State
 const error = ref('')

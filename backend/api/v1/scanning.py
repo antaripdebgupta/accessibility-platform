@@ -12,11 +12,10 @@ from pydantic import BaseModel
 from sqlalchemy import select, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.auth import get_current_user, require_role
+from core.auth import get_current_user, require_permission, AuthenticatedUser
 from db.session import get_db
 from models.evaluation import EvaluationProject
 from models.page import Page
-from models.user import User
 from tasks.scan import scan_pages
 
 router = APIRouter(tags=["Scanning"])
@@ -39,7 +38,7 @@ class ScanResponse(BaseModel):
 
 async def get_evaluation_for_user(
     evaluation_id: UUID,
-    user: User,
+    user: AuthenticatedUser,
     db: AsyncSession,
 ) -> EvaluationProject:
     """
@@ -79,7 +78,7 @@ async def get_evaluation_for_user(
 async def start_scan(
     evaluation_id: UUID,
     request: ScanRequest = ScanRequest(),
-    user: User = Depends(require_role("owner", "auditor")),
+    user: AuthenticatedUser = Depends(require_permission("scan.start")),
     db: AsyncSession = Depends(get_db),
 ) -> ScanResponse:
     """

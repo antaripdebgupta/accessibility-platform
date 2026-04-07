@@ -16,11 +16,10 @@ from pydantic import BaseModel
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.auth import get_current_user, require_role
+from core.auth import get_current_user, require_permission, AuthenticatedUser
 from db.session import get_db
 from models.evaluation import EvaluationProject
 from models.page import Page
-from models.user import User
 from tasks import celery_app
 from tasks.crawl import crawl_website
 
@@ -83,7 +82,7 @@ class PageSummaryResponse(BaseModel):
 
 async def get_evaluation_for_user(
     evaluation_id: UUID,
-    user: User,
+    user: AuthenticatedUser,
     db: AsyncSession,
 ) -> EvaluationProject:
     """
@@ -124,7 +123,7 @@ async def get_evaluation_for_user(
 async def start_exploration(
     evaluation_id: UUID,
     request: ExploreRequest,
-    user: User = Depends(require_role("owner", "auditor")),
+    user: AuthenticatedUser = Depends(require_permission("exploration.start")),
     db: AsyncSession = Depends(get_db),
 ) -> ExploreResponse:
     """
@@ -184,7 +183,7 @@ async def list_pages(
     in_sample: Optional[bool] = Query(None, description="Filter by sample inclusion"),
     skip: int = Query(0, ge=0, description="Pagination offset"),
     limit: int = Query(50, ge=1, le=200, description="Max results per page"),
-    user: User = Depends(get_current_user),
+    user: AuthenticatedUser = Depends(require_permission("exploration.read")),
     db: AsyncSession = Depends(get_db),
 ) -> PageListResponse:
     """
@@ -251,7 +250,7 @@ async def list_pages(
 )
 async def get_pages_summary(
     evaluation_id: UUID,
-    user: User = Depends(get_current_user),
+    user: AuthenticatedUser = Depends(require_permission("exploration.read")),
     db: AsyncSession = Depends(get_db),
 ) -> PageSummaryResponse:
     """

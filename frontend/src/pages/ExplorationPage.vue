@@ -76,6 +76,7 @@
           </div>
           <div class="flex items-center space-x-3">
             <button
+              v-if="canStartExploration"
               type="button"
               class="inline-flex items-center rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
               @click="handleRecrawl"
@@ -549,6 +550,7 @@ import PageTypeTag from '../components/common/PageTypeTag.vue'
 import StatusBadge from '../components/common/StatusBadge.vue'
 import AppLayout from '../components/layout/AppLayout.vue'
 import PageHeader from '../components/layout/PageHeader.vue'
+import { usePermissions } from '../composables/usePermissions'
 import api from '../lib/api'
 import { useEvaluationsStore } from '../stores/evaluations'
 import { useTasksStore } from '../stores/tasks'
@@ -557,6 +559,7 @@ const route = useRoute()
 const router = useRouter()
 const evaluationsStore = useEvaluationsStore()
 const tasksStore = useTasksStore()
+const { canStartExploration, canStartScan } = usePermissions()
 
 // Reactive state
 const loading = ref(true)
@@ -603,9 +606,9 @@ const isScanning = computed(() => {
 })
 
 const canStartAudit = computed(() => {
-  // Can start audit if crawl is complete and not already auditing or done
+  // Can start audit if crawl is complete, not already auditing or done, and user has permission
   const status = evaluation.value?.status
-  return status === 'SAMPLING' && totalPages.value > 0
+  return status === 'SAMPLING' && totalPages.value > 0 && canStartScan.value
 })
 
 const hasFindings = computed(() => {

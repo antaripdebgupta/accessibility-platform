@@ -14,12 +14,11 @@ from sqlalchemy import select, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from core.auth import get_current_user
+from core.auth import AuthenticatedUser, require_permission
 from db.session import get_db
 from models.audit_log import AuditLog
 from models.evaluation import EvaluationProject
 from models.finding import Finding
-from models.user import User
 
 router = APIRouter(tags=["Audit"])
 
@@ -51,7 +50,7 @@ class AuditLogResponse(BaseModel):
 
 async def get_evaluation_for_user(
     evaluation_id: UUID,
-    user: User,
+    user: AuthenticatedUser,
     db: AsyncSession,
 ) -> EvaluationProject:
     """
@@ -89,7 +88,7 @@ async def get_evaluation_for_user(
 )
 async def get_evaluation_audit_log(
     evaluation_id: UUID,
-    user: User = Depends(get_current_user),
+    user: AuthenticatedUser = Depends(require_permission("audit_log.read")),
     db: AsyncSession = Depends(get_db),
 ) -> AuditLogResponse:
     """

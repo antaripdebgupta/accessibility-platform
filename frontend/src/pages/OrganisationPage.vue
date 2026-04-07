@@ -105,8 +105,10 @@
                 {{ member.email }}
               </td>
               <td class="whitespace-nowrap px-6 py-4 text-sm">
-                <!-- Role dropdown for owners editing other members -->
-                <template v-if="isOwner && !isCurrentUser(member.user_id)">
+                <!-- Role dropdown for users with manage_members permission editing other members -->
+                <template
+                  v-if="canManageMembers && !isCurrentUser(member.user_id)"
+                >
                   <div
                     class="relative"
                     :title="
@@ -144,7 +146,7 @@
               <td class="whitespace-nowrap px-6 py-4 text-right text-sm">
                 <button
                   v-if="
-                    isOwner &&
+                    canManageMembers &&
                     !isCurrentUser(member.user_id) &&
                     !isLastOwner(member)
                   "
@@ -168,9 +170,9 @@
 
     <!-- Invitations Tab -->
     <div v-if="activeTab === 'invitations'">
-      <!-- Invite Form (owners only) -->
+      <!-- Invite Form (users with invite permission only) -->
       <div
-        v-if="isOwner"
+        v-if="canInviteMembers"
         class="mb-6 rounded-lg border border-gray-200 bg-white p-4"
       >
         <h3 class="text-sm font-medium text-gray-900 mb-4">Invite Member</h3>
@@ -557,6 +559,7 @@ import { useRoute, useRouter } from 'vue-router'
 import BaseButton from '../components/BaseButton.vue'
 import AppLayout from '../components/layout/AppLayout.vue'
 import PageHeader from '../components/layout/PageHeader.vue'
+import { usePermissions } from '../composables/usePermissions'
 import api from '../lib/api'
 import { useAuthStore } from '../stores/auth'
 import { useOrgStore } from '../stores/org'
@@ -565,6 +568,7 @@ const route = useRoute()
 const router = useRouter()
 const authStore = useAuthStore()
 const orgStore = useOrgStore()
+const { canManageMembers, canInviteMembers, isOwner } = usePermissions()
 
 const orgId = computed(() => route.params.id)
 
@@ -599,9 +603,7 @@ const currentOrg = computed(() => {
   return orgStore.organisations.find((o) => o.id === orgId.value) || null
 })
 
-const isOwner = computed(() => {
-  return currentOrg.value?.role === 'owner'
-})
+// isOwner now comes from usePermissions composable
 
 const ownerCount = computed(() => {
   return orgStore.members.filter((m) => m.role === 'owner').length

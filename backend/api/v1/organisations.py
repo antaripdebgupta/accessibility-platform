@@ -16,7 +16,7 @@ from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from core.auth import get_current_user
+from core.auth import AuthenticatedUser, get_current_user, require_permission
 from db.session import get_db
 from models.organisation import Organisation
 from models.user import User
@@ -72,7 +72,7 @@ async def count_owners_in_org(db: AsyncSession, org_id: UUID) -> int:
 @router.post("", response_model=OrganisationResponse, status_code=status.HTTP_201_CREATED)
 async def create_organisation(
     data: OrganisationCreate,
-    user: User = Depends(get_current_user),
+    user: AuthenticatedUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> OrganisationResponse:
     """Create a new organisation.
@@ -125,7 +125,7 @@ async def create_organisation(
 
 @router.get("/me", response_model=List[OrganisationWithRole])
 async def list_my_organisations(
-    user: User = Depends(get_current_user),
+    user: AuthenticatedUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> List[OrganisationWithRole]:
     """List all organisations the current user belongs to.
@@ -166,7 +166,7 @@ async def list_my_organisations(
 @router.get("/{org_id}", response_model=OrganisationResponse)
 async def get_organisation(
     org_id: UUID,
-    user: User = Depends(get_current_user),
+    user: AuthenticatedUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> OrganisationResponse:
     """Get organisation details.
@@ -216,7 +216,7 @@ async def get_organisation(
 @router.get("/{org_id}/members", response_model=List[OrganisationMember])
 async def list_organisation_members(
     org_id: UUID,
-    user: User = Depends(get_current_user),
+    user: AuthenticatedUser = Depends(require_permission("org.view_members")),
     db: AsyncSession = Depends(get_db),
 ) -> List[OrganisationMember]:
     """List all members of an organisation.
@@ -279,7 +279,7 @@ async def update_member_role(
     org_id: UUID,
     user_id: UUID,
     data: MemberRoleUpdate,
-    user: User = Depends(get_current_user),
+    user: AuthenticatedUser = Depends(require_permission("org.manage_members")),
     db: AsyncSession = Depends(get_db),
 ) -> OrganisationMember:
     """Update a member's role in the organisation.
@@ -354,7 +354,7 @@ async def update_member_role(
 async def remove_member(
     org_id: UUID,
     user_id: UUID,
-    user: User = Depends(get_current_user),
+    user: AuthenticatedUser = Depends(require_permission("org.manage_members")),
     db: AsyncSession = Depends(get_db),
 ) -> None:
     """Remove a member from the organisation.

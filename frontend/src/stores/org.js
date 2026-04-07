@@ -6,6 +6,7 @@
  * - Current active organisation
  * - Organisation members and invitations
  * - Organisation switching with localStorage persistence
+ * - User role and permissions for RBAC
  */
 
 import { defineStore } from 'pinia'
@@ -13,6 +14,68 @@ import { computed, ref } from 'vue'
 import api from '../lib/api'
 
 const LOCAL_STORAGE_KEY = 'current_org_id'
+
+/**
+ * Permission definitions mapped by role.
+ * This mirrors the backend permissions.py for client-side checks.
+ */
+const ROLE_PERMISSIONS = {
+  owner: [
+    'evaluation.create',
+    'evaluation.read',
+    'evaluation.update',
+    'evaluation.delete',
+    'evaluation.advance',
+    'exploration.start',
+    'exploration.read',
+    'scan.start',
+    'finding.read',
+    'finding.create_manual',
+    'finding.confirm',
+    'finding.dismiss',
+    'finding.reopen',
+    'report.generate',
+    'report.read',
+    'org.view_members',
+    'org.manage_members',
+    'org.invite',
+    'audit_log.read',
+  ],
+  auditor: [
+    'evaluation.create',
+    'evaluation.read',
+    'evaluation.update',
+    'evaluation.advance',
+    'exploration.start',
+    'exploration.read',
+    'scan.start',
+    'finding.read',
+    'finding.create_manual',
+    'finding.confirm',
+    'finding.dismiss',
+    'finding.reopen',
+    'report.generate',
+    'report.read',
+    'org.view_members',
+    'audit_log.read',
+  ],
+  reviewer: [
+    'evaluation.read',
+    'exploration.read',
+    'finding.read',
+    'finding.confirm',
+    'finding.dismiss',
+    'report.read',
+    'org.view_members',
+  ],
+  viewer: [
+    'evaluation.read',
+    'exploration.read',
+    'finding.read',
+    'report.read',
+    'org.view_members',
+  ],
+}
 
 export const useOrgStore = defineStore('org', () => {
   // State
@@ -25,15 +88,43 @@ export const useOrgStore = defineStore('org', () => {
 
   // Computed
   const hasOrganisations = computed(() => organisations.value.length > 0)
-  const isOwner = computed(() => {
-    if (!current.value) return false
+  const currentRole = computed(() => {
+    if (!current.value) return null
     const org = organisations.value.find((o) => o.id === current.value.id)
-    return org?.role === 'owner'
+    return org?.role || null
   })
+  const isOwner = computed(() => currentRole.value === 'owner')
+  const isAuditor = computed(
+    () => currentRole.value === 'owner' || currentRole.value === 'auditor',
+  )
+  const isReviewer = computed(
+    () =>
+      currentRole.value === 'owner' ||
+      currentRole.value === 'auditor' ||
+      currentRole.value === 'reviewer',
+  )
   const currentOrgId = computed(() => current.value?.id || null)
   const ownerCount = computed(() => {
     return members.value.filter((m) => m.role === 'owner').length
   })
+
+  /**
+   * Get the permissions for the current role.
+   * @returns {string[]} Array of permission strings
+   */
+  const permissions = computed(() => {
+    if (!currentRole.value) return []
+    return ROLE_PERMISSIONS[currentRole.value] || []
+  })
+
+  /**
+   * Check if the user can perform a specific action.
+   * @param {string} action - The permission action to check
+   * @returns {boolean} Whether the user has permission
+   */
+  function can(action) {
+    return permissions.value.includes(action)
+  }
 
   /**
    * Fetch all organisations the current user belongs to.
@@ -296,11 +387,16 @@ export const useOrgStore = defineStore('org', () => {
 
     // Computed
     hasOrganisations,
+    currentRole,
     isOwner,
+    isAuditor,
+    isReviewer,
     currentOrgId,
     ownerCount,
+    permissions,
 
     // Actions
+    can,
     fetchMyOrgs,
     switchOrg,
     createOrg,

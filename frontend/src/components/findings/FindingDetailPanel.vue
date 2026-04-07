@@ -260,6 +260,7 @@
         <div class="flex items-center justify-between">
           <div class="flex space-x-3">
             <button
+              v-if="canConfirmFinding"
               type="button"
               class="inline-flex items-center rounded-md bg-green-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-green-500 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
               :disabled="displayFinding.status === 'CONFIRMED'"
@@ -268,6 +269,7 @@
               Confirm Issue
             </button>
             <button
+              v-if="canDismissFinding"
               type="button"
               class="inline-flex items-center rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
               :disabled="displayFinding.status === 'DISMISSED'"
@@ -287,8 +289,11 @@
 
 <script setup>
 import { computed, ref, watch } from 'vue'
+import { usePermissions } from '../../composables/usePermissions'
 import api from '../../lib/api'
 import SeverityBadge from './SeverityBadge.vue'
+
+const { canConfirmFinding, canDismissFinding } = usePermissions()
 
 const props = defineProps({
   finding: {
