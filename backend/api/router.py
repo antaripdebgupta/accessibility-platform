@@ -5,6 +5,7 @@ from api.v1.evaluations import router as evaluations_router
 from api.v1.exploration import router as exploration_router
 from api.v1.tasks import router as tasks_router
 from api.v1.scanning import router as scanning_router
+from api.v1.sampling import router as sampling_router
 from api.v1.findings import router as findings_router
 from api.v1.wcag import router as wcag_router
 from api.v1.reports import router as reports_router
@@ -16,13 +17,16 @@ from api.v1.invitations import router as invitations_router
 # Add new routers here as you build them
 api_router = APIRouter(prefix="/api/v1")
 
-# ── Registered routes ──────────────────────────
+# ── Registered routes ──────────────────────────────
 api_router.include_router(health_router)
 api_router.include_router(auth_router, prefix="/auth")
 api_router.include_router(evaluations_router, prefix="/evaluations")
 
 # Exploration routes nested under evaluations
 api_router.include_router(exploration_router, prefix="/evaluations")
+
+# Sampling routes nested under evaluations
+api_router.include_router(sampling_router, prefix="/evaluations")
 
 # Scanning routes nested under evaluations
 api_router.include_router(scanning_router, prefix="/evaluations")

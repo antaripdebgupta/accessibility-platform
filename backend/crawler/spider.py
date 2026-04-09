@@ -61,14 +61,14 @@ SKIP_EXTENSIONS = frozenset([
 ])
 
 
-def classify_page_type(url: str, title: str, http_status: int = 200) -> str:
+def classify_page_type(url: str, title: str, http_status: int = 0) -> str:
     """
     Classify the type of page based on URL and title.
 
     Args:
         url: The page URL
         title: The page title
-        http_status: The HTTP status code
+        http_status: The HTTP status code (0 means unknown/not fetched)
 
     Returns:
         One of: home, form, navigation, media, search, auth, error, other
@@ -80,38 +80,39 @@ def classify_page_type(url: str, title: str, http_status: int = 200) -> str:
     parsed = urlparse(url_lower)
     path = parsed.path.rstrip('/')
 
-    # Check for HTTP error status
-    if http_status >= 400:
-        return "error"
-
-    # Home page detection
+    # Home page detection - check FIRST before other keywords
     if path == "" or path == "/":
         return "home"
 
-    # Form-related pages
-    form_keywords = ['contact', 'about', 'form', 'apply', 'register', 'signup', 'sign-up', 'subscribe']
-    if any(kw in url_lower or kw in title_lower for kw in form_keywords):
-        return "form"
+    # Auth pages - check before form to catch login/signup correctly
+    auth_keywords = ['login', 'signin', 'sign-in', 'auth', 'logout', 'password', 'account']
+    if any(kw in url_lower or kw in title_lower for kw in auth_keywords):
+        return "auth"
 
     # Search pages
     search_keywords = ['search', 'find', 'results', 'query']
-    if any(kw in url_lower for kw in search_keywords):
+    if any(kw in url_lower or kw in title_lower for kw in search_keywords):
         return "search"
 
-    # Auth pages
-    auth_keywords = ['login', 'signin', 'sign-in', 'auth', 'logout', 'password', 'account']
-    if any(kw in url_lower for kw in auth_keywords):
-        return "auth"
+    # Form-related pages
+    form_keywords = ['contact', 'form', 'apply', 'register', 'signup', 'sign-up', 'subscribe']
+    if any(kw in url_lower or kw in title_lower for kw in form_keywords):
+        return "form"
 
     # Navigation pages
     nav_keywords = ['nav', 'menu', 'sitemap', 'index', 'directory']
-    if any(kw in url_lower for kw in nav_keywords):
+    if any(kw in url_lower or kw in title_lower for kw in nav_keywords):
         return "navigation"
 
     # Media pages
     media_keywords = ['video', 'audio', 'media', 'gallery', 'image', 'photo', 'podcast']
-    if any(kw in url_lower for kw in media_keywords):
+    if any(kw in url_lower or kw in title_lower for kw in media_keywords):
         return "media"
+
+    # Check for HTTP error status LAST - only if status is actually an error (not 0/unknown)
+    # http_status=0 means "not yet fetched" or "network error" - NOT a 4xx/5xx error
+    if http_status >= 400 and http_status != 0:
+        return "error"
 
     return "other"
 
@@ -121,13 +122,20 @@ def normalise_url(url: str, base_domain: str) -> Optional[str]:
     Normalize a URL for deduplication and filtering.
 
     Args:
-        url: The URL to normalize
+        url: The URL to normalize (can be absolute or relative)
         base_domain: The base domain (scheme + netloc) to match against
 
     Returns:
         Normalized URL or None if the URL should be rejected
     """
     try:
+        # Handle relative URLs starting with /
+        if url.startswith('/'):
+            url = f"{base_domain.rstrip('/')}{url}"
+        elif not url.startswith('http'):
+            # Relative path with no leading slash - skip these ambiguous cases
+            return None
+
         parsed = urlparse(url)
         base_parsed = urlparse(base_domain)
 
@@ -328,12 +336,14 @@ async def crawl(
                         await page.wait_for_timeout(800)
 
                     except PlaywrightTimeoutError:
-                        # Timeout: record error and continue
+                        # Timeout: record page but don't classify as error type
+                        # http_status=0 indicates fetch failed, page_type based on URL
+                        page_type = classify_page_type(current_url, "", 0)
                         results.append(PageData(
                             url=current_url,
                             title="",
                             http_status=0,
-                            page_type="error",
+                            page_type=page_type,
                             error="timeout"
                         ))
                         logger.warning(
@@ -355,13 +365,23 @@ async def crawl(
                         current_url = final_url_normalized
 
                     http_status = response.status if response else 0
-                    title = await page.title() or ""
 
-                    # Extract links from the page
+                    # Get page title with fallback to h1
+                    title = await page.title() or ""
+                    if not title:
+                        # Try to get title from h1 as fallback
+                        try:
+                            h1_element = page.locator("h1").first
+                            h1_text = await h1_element.text_content(timeout=2000)
+                            title = h1_text.strip() if h1_text else ""
+                        except Exception:
+                            title = ""
+
+                    # Extract links from the page - get both resolved href and raw attribute
                     try:
                         links = await page.eval_on_selector_all(
                             "a[href]",
-                            "els => els.map(e => e.href)"
+                            "els => els.map(e => e.href || e.getAttribute('href')).filter(Boolean)"
                         )
                     except Exception:
                         links = []
@@ -399,12 +419,13 @@ async def crawl(
                     )
 
                 except PlaywrightTimeoutError:
-                    # Timeout during page operations
+                    # Timeout during page operations - classify based on URL, not as error
+                    page_type = classify_page_type(current_url, "", 0)
                     results.append(PageData(
                         url=current_url,
                         title="",
                         http_status=0,
-                        page_type="error",
+                        page_type=page_type,
                         error="timeout"
                     ))
                     logger.warning(
@@ -413,13 +434,14 @@ async def crawl(
                     )
 
                 except Exception as e:
-                    # Record error but continue crawling
+                    # Record error but continue crawling - classify based on URL
                     error_msg = str(e)[:200]
+                    page_type = classify_page_type(current_url, "", 0)
                     results.append(PageData(
                         url=current_url,
                         title="",
                         http_status=0,
-                        page_type="error",
+                        page_type=page_type,
                         error=error_msg
                     ))
                     logger.warning(

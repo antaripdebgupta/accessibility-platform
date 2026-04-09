@@ -9,7 +9,7 @@
   >
     <div
       v-if="visible"
-      class="pointer-events-auto w-full max-w-sm overflow-hidden rounded-lg bg-red-50 shadow-lg ring-1 ring-red-200"
+      class="pointer-events-auto w-full max-w-md overflow-hidden rounded-lg bg-red-50 shadow-lg ring-1 ring-red-200"
       role="alert"
       aria-live="assertive"
     >

@@ -296,3 +296,58 @@ async def get_pages_summary(
         total_pages=total_pages,
         by_type=by_type,
     )
+
+
+# DEBUG ENDPOINT - For development/troubleshooting only
+# TODO: Remove before production deployment
+@router.get(
+    "/{evaluation_id}/pages/debug",
+    response_model=list[dict],
+)
+async def debug_pages(
+    evaluation_id: UUID,
+    user: AuthenticatedUser = Depends(require_permission("exploration.read")),
+    db: AsyncSession = Depends(get_db),
+) -> list[dict]:
+    """
+    DEBUG: Get raw page data for troubleshooting crawler output.
+
+    Returns all pages with all fields, no pagination.
+    Used to diagnose what the crawler actually stored in the database.
+
+    NOTE: This endpoint is for development only and should be removed
+    before production deployment.
+
+    Args:
+        evaluation_id: The evaluation UUID
+
+    Returns:
+        List of raw page dictionaries with all fields
+    """
+    evaluation = await get_evaluation_for_user(evaluation_id, user, db)
+
+    # Fetch all pages without pagination
+    query = (
+        select(Page)
+        .where(Page.evaluation_id == evaluation.id)
+        .order_by(Page.discovered_at.asc())
+    )
+    result = await db.execute(query)
+    pages = result.scalars().all()
+
+    return [
+        {
+            "id": str(page.id),
+            "url": page.url,
+            "title": page.title,
+            "page_type": page.page_type,
+            "http_status": page.http_status,
+            "in_sample": page.in_sample,
+            "sample_reason": page.sample_reason,
+            "crawl_status": page.crawl_status,
+            "scan_status": page.scan_status,
+            "discovered_at": page.discovered_at.isoformat() if page.discovered_at else None,
+            "scanned_at": page.scanned_at.isoformat() if page.scanned_at else None,
+        }
+        for page in pages
+    ]

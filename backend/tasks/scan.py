@@ -14,7 +14,7 @@ from celery import Task
 from celery.exceptions import SoftTimeLimitExceeded
 from celery.signals import worker_ready
 from playwright.async_api import async_playwright
-from sqlalchemy import create_engine, select, and_
+from sqlalchemy import create_engine, select, and_, func
 from sqlalchemy.orm import Session, sessionmaker
 
 from core.config import settings
@@ -248,10 +248,12 @@ def scan_pages(
                 )
             )
         else:
-            # Scan all pages that haven't been completed successfully
+            # Scan only pages that are in the sample and haven't been completed
+            # WCAG-EM Step 3: Only scan pages selected through sampling algorithm
             pages_stmt = select(Page).where(
                 and_(
                     Page.evaluation_id == eval_uuid,
+                    Page.in_sample == True,  # noqa: E712 - Only scan sampled pages
                     Page.scan_status.notin_(["COMPLETE"]),
                 )
             )
@@ -260,6 +262,26 @@ def scan_pages(
         pages = list(pages_result.scalars().all())
 
         if not pages:
+            # Check if there are any sampled pages at all
+            sampled_count_stmt = select(func.count()).select_from(Page).where(
+                and_(
+                    Page.evaluation_id == eval_uuid,
+                    Page.in_sample == True,  # noqa: E712
+                )
+            )
+            sampled_result = session.execute(sampled_count_stmt)
+            sampled_count = sampled_result.scalar() or 0
+
+            if sampled_count == 0:
+                logger.error(
+                    "scan_no_sampled_pages",
+                    evaluation_id=evaluation_id,
+                )
+                raise ValueError(
+                    "No pages in sample. Run sampling before scanning. "
+                    "Use POST /evaluations/{id}/sample to compute the sample."
+                )
+
             logger.info(
                 "scan_no_pages_to_scan",
                 evaluation_id=evaluation_id,
@@ -270,6 +292,21 @@ def scan_pages(
                 "total_findings": 0,
                 "pages_with_errors": 0,
             }
+
+        # Get total discovered pages for logging
+        total_pages_stmt = select(func.count()).select_from(Page).where(
+            Page.evaluation_id == eval_uuid
+        )
+        total_result = session.execute(total_pages_stmt)
+        total_discovered = total_result.scalar() or 0
+
+        logger.info(
+            "scan_sample_pages",
+            evaluation_id=evaluation_id,
+            sampled_pages=len(pages),
+            total_discovered=total_discovered,
+            message=f"Scanning {len(pages)} sampled pages out of {total_discovered} discovered",
+        )
 
         # Track unscanned pages for SoftTimeLimitExceeded handling
         unscanned_pages = pages.copy()

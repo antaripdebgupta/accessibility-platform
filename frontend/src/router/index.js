@@ -49,6 +49,12 @@ const routes = [
     meta: { requiresAuth: true },
   },
   {
+    path: '/evaluations/:id/sample',
+    name: 'Sampling',
+    component: () => import('../pages/SamplingPage.vue'),
+    meta: { requiresAuth: true },
+  },
+  {
     path: '/evaluations/:id/findings',
     name: 'Findings',
     component: () => import('../pages/FindingsPage.vue'),

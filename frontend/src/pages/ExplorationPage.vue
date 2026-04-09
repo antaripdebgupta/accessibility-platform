@@ -97,22 +97,13 @@
               </svg>
               Re-crawl Website
             </button>
-            <!-- Start Audit Button -->
-            <button
-              v-if="canStartAudit"
-              type="button"
-              class="inline-flex items-center rounded-md bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-              :disabled="isScanning"
-              @click="handleStartAudit"
+            <!-- Configure Sample Button (after crawl is done) -->
+            <RouterLink
+              v-if="canConfigureSample"
+              :to="{ name: 'Sampling', params: { id: evaluationId } }"
+              class="inline-flex items-center rounded-md px-4 py-2 text-sm font-semibold text-indigo-600 shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
             >
-              <LoadingSpinner
-                v-if="isScanning"
-                size="sm"
-                color="white"
-                class="mr-2"
-              />
               <svg
-                v-else
                 class="-ml-0.5 mr-1.5 h-4 w-4"
                 fill="none"
                 stroke="currentColor"
@@ -123,11 +114,11 @@
                   stroke-linecap="round"
                   stroke-linejoin="round"
                   stroke-width="2"
-                  d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"
+                  d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"
                 />
               </svg>
-              {{ isScanning ? 'Scanning...' : 'Start Accessibility Audit' }}
-            </button>
+              Configure Sample →
+            </RouterLink>
             <!-- Go to Findings (if audit complete) -->
             <RouterLink
               v-if="hasFindings"
@@ -601,12 +592,8 @@ const hasCrawled = computed(() => {
   )
 })
 
-const isScanning = computed(() => {
-  return evaluation.value?.status === 'AUDITING'
-})
-
-const canStartAudit = computed(() => {
-  // Can start audit if crawl is complete, not already auditing or done, and user has permission
+const canConfigureSample = computed(() => {
+  // Can configure sample after crawl is complete (status becomes SAMPLING)
   const status = evaluation.value?.status
   return status === 'SAMPLING' && totalPages.value > 0 && canStartScan.value
 })
@@ -761,39 +748,6 @@ async function handleRecrawl() {
   totalPages.value = 0
   pageSummary.value = null
   await handleStartCrawl()
-}
-
-async function handleStartAudit() {
-  try {
-    const response = await api.post(`/evaluations/${evaluationId.value}/scan`)
-
-    const taskId = response.data.task_id
-
-    // Refresh evaluation to get updated status
-    await evaluationsStore.fetchOne(evaluationId.value)
-
-    // Start polling for task completion
-    tasksStore.startPolling(
-      taskId,
-      // On success
-      async (result) => {
-        await evaluationsStore.fetchOne(evaluationId.value)
-        // Redirect to findings page after successful audit
-        router.push({
-          name: 'Findings',
-          params: { id: evaluationId.value },
-        })
-      },
-      // On error
-      (errorMsg) => {
-        showErrorToast('Scan failed', errorMsg)
-        evaluationsStore.fetchOne(evaluationId.value)
-      },
-    )
-  } catch (err) {
-    console.error('Failed to start scan:', err)
-    showErrorToast('Failed to start accessibility audit', err.message)
-  }
 }
 
 // Lifecycle
