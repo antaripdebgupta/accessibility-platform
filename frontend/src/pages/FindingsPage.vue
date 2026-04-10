@@ -68,6 +68,42 @@
         </div>
       </PageHeader>
 
+      <!-- Profile Selector Section -->
+      <div
+        class="mb-6 flex items-center justify-between rounded-lg border border-gray-200 bg-white px-4 py-3"
+      >
+        <div class="flex items-center space-x-3">
+          <span class="text-sm font-medium text-gray-700">Viewing as:</span>
+          <ProfileBadge
+            v-if="profilesStore.hasActiveProfile"
+            :profile-id="profilesStore.activeProfile"
+          />
+          <span
+            v-else
+            class="inline-flex items-center rounded-full bg-gray-100 px-3 py-1 text-sm font-medium text-gray-700"
+          >
+            All Users
+          </span>
+        </div>
+        <button
+          type="button"
+          class="text-sm font-medium text-indigo-600 hover:text-indigo-500"
+          @click="showProfileSelector = true"
+        >
+          {{
+            profilesStore.hasActiveProfile ? 'Change Profile' : 'Select Profile'
+          }}
+        </button>
+      </div>
+
+      <!-- Profile Summary Card (when profile is active) -->
+      <ProfileSummaryCard
+        v-if="profilesStore.hasActiveProfile && findingsStore.profileSummary"
+        :summary="findingsStore.profileSummary"
+        :show-change-button="false"
+        class="mb-6"
+      />
+
       <!-- Summary Cards -->
       <FindingsSummary
         :summary="findingsStore.summary"
@@ -79,8 +115,13 @@
       <!-- Filters -->
       <FindingFilters
         :model-value="findingsStore.filters"
+        :active-profile="profilesStore.activeProfile"
+        :exclude-na="findingsStore.excludeNa"
+        :profile-priority="findingsStore.profilePriorityFilter"
         class="mb-6"
         @update:model-value="handleFiltersUpdate"
+        @update:exclude-na="handleExcludeNaChange"
+        @update:profile-priority="handleProfilePriorityChange"
       />
 
       <!-- FIX 9: SCAN_ERROR Warning Banner -->
@@ -269,6 +310,7 @@
         :loading="findingsStore.loadingFindings"
         :selected-ids="selectedIds"
         :selectable="true"
+        :active-profile="profilesStore.activeProfile"
         @select="openDetail"
         @confirm="handleConfirm"
         @dismiss="handleDismiss"
@@ -340,6 +382,13 @@
       @submit="handleCreateManualFinding"
     />
 
+    <!-- Profile Selector Modal -->
+    <ProfileSelector
+      :show="showProfileSelector"
+      @close="showProfileSelector = false"
+      @changed="handleProfileChanged"
+    />
+
     <!-- Error Toast -->
     <div class="fixed bottom-4 right-4 z-50">
       <ErrorToast
@@ -365,15 +414,20 @@ import FindingsTable from '../components/findings/FindingsTable.vue'
 import ManualFindingModal from '../components/findings/ManualFindingModal.vue'
 import AppLayout from '../components/layout/AppLayout.vue'
 import PageHeader from '../components/layout/PageHeader.vue'
+import ProfileBadge from '../components/profiles/ProfileBadge.vue'
+import ProfileSelector from '../components/profiles/ProfileSelector.vue'
+import ProfileSummaryCard from '../components/profiles/ProfileSummaryCard.vue'
 import { usePermissions } from '../composables/usePermissions'
 import api from '../lib/api'
 import { useEvaluationsStore } from '../stores/evaluations'
 import { useFindingsStore } from '../stores/findings'
+import { useProfilesStore } from '../stores/profiles'
 
 const route = useRoute()
 const router = useRouter()
 const evaluationsStore = useEvaluationsStore()
 const findingsStore = useFindingsStore()
+const profilesStore = useProfilesStore()
 const { canCreateManualFinding, canConfirmFinding, canDismissFinding } =
   usePermissions()
 
@@ -382,6 +436,7 @@ const loading = ref(true)
 const error = ref('')
 const selectedFinding = ref(null)
 const showManualModal = ref(false)
+const showProfileSelector = ref(false)
 const pages = ref([])
 const criteria = ref([])
 
@@ -455,10 +510,37 @@ function prevPage() {
 
 async function loadFindings() {
   try {
-    await findingsStore.fetchFindings(evaluationId.value)
+    // Include profile options if a profile is active
+    const profileOptions = {
+      profileId: profilesStore.activeProfile,
+      excludeNaOption: findingsStore.excludeNa,
+      profilePriority: findingsStore.profilePriorityFilter,
+    }
+    await findingsStore.fetchFindings(evaluationId.value, {}, profileOptions)
   } catch (err) {
     showErrorToast('Failed to load findings', err.message)
   }
+}
+
+// Profile handlers
+async function handleProfileChanged(profileId) {
+  // Reset pagination when profile changes
+  findingsStore.pagination.skip = 0
+  findingsStore.setExcludeNa(false)
+  findingsStore.setProfilePriorityFilter(null)
+  await loadFindings()
+}
+
+function handleExcludeNaChange(value) {
+  findingsStore.setExcludeNa(value)
+  findingsStore.pagination.skip = 0
+  loadFindings()
+}
+
+function handleProfilePriorityChange(value) {
+  findingsStore.setProfilePriorityFilter(value)
+  findingsStore.pagination.skip = 0
+  loadFindings()
 }
 
 async function handleConfirm(findingOrId) {
@@ -650,12 +732,19 @@ async function handleRescanErrors() {
       `Re-scanning ${scanErrorCount.value} failed page(s). This may take a few minutes.`,
     )
 
+    // Build profile options for refresh
+    const profileOptions = {
+      profileId: profilesStore.activeProfile,
+      excludeNaOption: findingsStore.excludeNa,
+      profilePriority: findingsStore.profilePriorityFilter,
+    }
+
     // Poll for completion or redirect to evaluation detail
     // For now, just refresh pages after a short delay
     setTimeout(async () => {
       await loadPages()
       await Promise.all([
-        findingsStore.fetchFindings(evaluationId.value),
+        findingsStore.fetchFindings(evaluationId.value, {}, profileOptions),
         findingsStore.fetchSummary(evaluationId.value),
       ])
     }, 3000)
@@ -677,13 +766,23 @@ onMounted(async () => {
   window.addEventListener('keydown', handleKeydown)
 
   try {
+    // Fetch profiles first
+    await profilesStore.fetchProfiles()
+
     // Fetch evaluation details
     await evaluationsStore.fetchOne(evaluationId.value)
 
     if (evaluation.value) {
+      // Build profile options
+      const profileOptions = {
+        profileId: profilesStore.activeProfile,
+        excludeNaOption: findingsStore.excludeNa,
+        profilePriority: findingsStore.profilePriorityFilter,
+      }
+
       // Load findings, summary, pages, and criteria in parallel
       await Promise.all([
-        findingsStore.fetchFindings(evaluationId.value),
+        findingsStore.fetchFindings(evaluationId.value, {}, profileOptions),
         findingsStore.fetchSummary(evaluationId.value),
         loadPages(),
         loadCriteria(),

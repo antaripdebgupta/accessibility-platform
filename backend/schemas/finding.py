@@ -43,6 +43,9 @@ class FindingResponse(BaseModel):
         screenshot_url: Presigned MinIO URL for screenshot (optional)
         created_at: When the finding was created
         updated_at: When the finding was last updated
+        profile_relevant: Whether this finding is relevant for the active profile (optional)
+        profile_priority: Priority level for the active profile (critical/high/medium/low/na) (optional)
+        profile_severity: Boosted severity for the active profile (optional)
     """
 
     id: UUID
@@ -68,6 +71,10 @@ class FindingResponse(BaseModel):
     screenshot_url: Optional[str] = None
     created_at: datetime
     updated_at: datetime
+    # Profile-specific fields (populated when ?profile= query param is used)
+    profile_relevant: Optional[bool] = None
+    profile_priority: Optional[str] = None  # critical/high/medium/low/na
+    profile_severity: Optional[str] = None  # boosted severity for active profile
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -191,3 +198,47 @@ class FindingListItem(BaseModel):
 
 # Type alias for paginated finding response
 FindingListResponse = PaginatedResponse[FindingResponse]
+
+
+class ProfileSummaryInline(BaseModel):
+    """
+    Inline profile summary for findings response.
+
+    Attributes:
+        profile_id: Profile identifier
+        profile_name: Human-readable profile name
+        critical_for_profile: Count of findings with critical priority
+        high_for_profile: Count of findings with high priority
+        not_applicable: Count of findings marked N/A
+        total_relevant: Count of relevant findings
+        boosted_count: Count of findings with boosted severity
+    """
+
+    profile_id: str
+    profile_name: str
+    critical_for_profile: int = 0
+    high_for_profile: int = 0
+    not_applicable: int = 0
+    total_relevant: int = 0
+    boosted_count: int = 0
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class FindingsWithProfileResponse(BaseModel):
+    """
+    Response for findings with profile summary.
+
+    Includes the profile summary alongside the paginated findings list.
+
+    Attributes:
+        total: Total count of findings matching filters
+        items: List of findings with profile fields
+        profile_summary: Summary statistics for the active profile (optional)
+    """
+
+    total: int
+    items: list[FindingResponse]
+    profile_summary: Optional[ProfileSummaryInline] = None
+
+    model_config = ConfigDict(from_attributes=True)

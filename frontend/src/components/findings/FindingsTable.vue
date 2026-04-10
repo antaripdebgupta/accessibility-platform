@@ -64,6 +64,14 @@
             >
               Severity
             </th>
+            <!-- Profile Priority Column Header (only shown when profile active) -->
+            <th
+              v-if="activeProfile"
+              scope="col"
+              class="hidden px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-purple-600 sm:table-cell"
+            >
+              Profile Priority
+            </th>
             <th
               scope="col"
               class="hidden px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 md:table-cell"
@@ -94,118 +102,135 @@
             >
               Actions
             </th>
-        </tr>
-      </thead>
-      <tbody class="divide-y divide-gray-200 bg-white">
-        <tr
-          v-for="finding in findings"
-          :key="finding.id"
-          class="cursor-pointer transition-colors"
-          :class="isSelected(finding.id) ? 'bg-blue-50' : 'hover:bg-gray-50'"
-          @click="$emit('select', finding)"
-        >
-          <!-- Checkbox -->
-          <td v-if="selectable" class="w-12 px-4 py-4" @click.stop>
-            <input
-              type="checkbox"
-              class="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
-              :checked="isSelected(finding.id)"
-              @change="toggleSelection(finding.id)"
-            />
-          </td>
-          <!-- Severity -->
-          <td class="whitespace-nowrap px-6 py-4">
-            <SeverityBadge :severity="finding.severity || 'info'" />
-          </td>
-
-          <!-- WCAG Criterion -->
-          <td class="hidden px-6 py-4 md:table-cell">
-            <div class="text-sm font-medium text-gray-900">
-              {{
-                finding.criterion_code ||
-                (finding.rule_id ? `Rule: ${finding.rule_id}` : 'N/A')
-              }}
-            </div>
-            <div
-              v-if="finding.criterion_name"
-              class="max-w-xs truncate text-xs text-gray-500"
-            >
-              {{ finding.criterion_name }}
-            </div>
-          </td>
-
-          <!-- Page URL -->
-          <td class="hidden max-w-xs px-6 py-4 lg:table-cell">
-            <a
-              v-if="finding.page_url"
-              :href="finding.page_url"
-              target="_blank"
-              rel="noopener noreferrer"
-              class="flex items-center text-sm text-indigo-600 hover:text-indigo-500"
-              @click.stop
-            >
-              <span class="truncate">{{ truncateUrl(finding.page_url) }}</span>
-              <svg
-                class="ml-1 h-3 w-3 shrink-0"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  stroke-width="2"
-                  d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"
-                />
-              </svg>
-            </a>
-            <span v-else class="text-sm text-gray-400">—</span>
-          </td>
-
-          <!-- Description -->
-          <td class="px-6 py-4">
-            <p class="line-clamp-2 text-sm text-gray-900">
-              {{ finding.description }}
-            </p>
-          </td>
-
-          <!-- Status -->
-          <td class="hidden whitespace-nowrap px-6 py-4 sm:table-cell">
-            <span
-              class="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium"
-              :class="getStatusClasses(finding.status)"
-            >
-              {{ finding.status }}
-            </span>
-          </td>
-
-          <!-- Actions -->
-          <td
-            class="whitespace-nowrap px-6 py-4 text-right text-sm font-medium"
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-gray-200 bg-white">
+          <tr
+            v-for="finding in findings"
+            :key="finding.id"
+            class="cursor-pointer transition-colors"
+            :class="[
+              isSelected(finding.id) ? 'bg-blue-50' : 'hover:bg-gray-50',
+              isNaForProfile(finding) ? 'opacity-50' : '',
+            ]"
+            @click="$emit('select', finding)"
           >
-            <div class="flex items-center justify-end space-x-2">
-              <button
-                v-if="finding.status === 'OPEN'"
-                type="button"
-                class="rounded px-2 py-1 text-xs font-medium text-green-600 hover:bg-green-50 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-1"
-                @click.stop="$emit('confirm', finding.id)"
+            <!-- Checkbox -->
+            <td v-if="selectable" class="w-12 px-4 py-4" @click.stop>
+              <input
+                type="checkbox"
+                class="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                :checked="isSelected(finding.id)"
+                @change="toggleSelection(finding.id)"
+              />
+            </td>
+            <!-- Severity -->
+            <td class="whitespace-nowrap px-6 py-4">
+              <SeverityBadge :severity="finding.severity || 'info'" />
+            </td>
+
+            <!-- Profile Priority (only shown when profile active) -->
+            <td
+              v-if="activeProfile"
+              class="hidden whitespace-nowrap px-6 py-4 sm:table-cell"
+            >
+              <ProfilePriorityBadge
+                v-if="finding.profile_priority"
+                :priority="finding.profile_priority"
+              />
+              <span v-else class="text-xs text-gray-400">—</span>
+            </td>
+
+            <!-- WCAG Criterion -->
+            <td class="hidden px-6 py-4 md:table-cell">
+              <div class="text-sm font-medium text-gray-900">
+                {{
+                  finding.criterion_code ||
+                  (finding.rule_id ? `Rule: ${finding.rule_id}` : 'N/A')
+                }}
+              </div>
+              <div
+                v-if="finding.criterion_name"
+                class="max-w-xs truncate text-xs text-gray-500"
               >
-                Confirm
-              </button>
-              <button
-                v-if="
-                  finding.status === 'OPEN' || finding.status === 'CONFIRMED'
-                "
-                type="button"
-                class="rounded px-2 py-1 text-xs font-medium text-gray-600 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-1"
-                @click.stop="$emit('dismiss', finding.id)"
+                {{ finding.criterion_name }}
+              </div>
+            </td>
+
+            <!-- Page URL -->
+            <td class="hidden max-w-xs px-6 py-4 lg:table-cell">
+              <a
+                v-if="finding.page_url"
+                :href="finding.page_url"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="flex items-center text-sm text-indigo-600 hover:text-indigo-500"
+                @click.stop
               >
-                Dismiss
-              </button>
-            </div>
-          </td>
-        </tr>
-      </tbody>
+                <span class="truncate">{{
+                  truncateUrl(finding.page_url)
+                }}</span>
+                <svg
+                  class="ml-1 h-3 w-3 shrink-0"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="2"
+                    d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"
+                  />
+                </svg>
+              </a>
+              <span v-else class="text-sm text-gray-400">—</span>
+            </td>
+
+            <!-- Description -->
+            <td class="px-6 py-4">
+              <p class="line-clamp-2 text-sm text-gray-900">
+                {{ finding.description }}
+              </p>
+            </td>
+
+            <!-- Status -->
+            <td class="hidden whitespace-nowrap px-6 py-4 sm:table-cell">
+              <span
+                class="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium"
+                :class="getStatusClasses(finding.status)"
+              >
+                {{ finding.status }}
+              </span>
+            </td>
+
+            <!-- Actions -->
+            <td
+              class="whitespace-nowrap px-6 py-4 text-right text-sm font-medium"
+            >
+              <div class="flex items-center justify-end space-x-2">
+                <button
+                  v-if="finding.status === 'OPEN'"
+                  type="button"
+                  class="rounded px-2 py-1 text-xs font-medium text-green-600 hover:bg-green-50 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-1"
+                  @click.stop="$emit('confirm', finding.id)"
+                >
+                  Confirm
+                </button>
+                <button
+                  v-if="
+                    finding.status === 'OPEN' || finding.status === 'CONFIRMED'
+                  "
+                  type="button"
+                  class="rounded px-2 py-1 text-xs font-medium text-gray-600 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-1"
+                  @click.stop="$emit('dismiss', finding.id)"
+                >
+                  Dismiss
+                </button>
+              </div>
+            </td>
+          </tr>
+        </tbody>
       </table>
     </div>
   </div>
@@ -213,6 +238,7 @@
 
 <script setup>
 import { computed } from 'vue'
+import ProfilePriorityBadge from '../profiles/ProfilePriorityBadge.vue'
 import SeverityBadge from './SeverityBadge.vue'
 
 const props = defineProps({
@@ -231,6 +257,10 @@ const props = defineProps({
   selectable: {
     type: Boolean,
     default: false,
+  },
+  activeProfile: {
+    type: String,
+    default: null,
   },
 })
 
@@ -252,6 +282,11 @@ const someSelected = computed(() => {
 
 function isSelected(id) {
   return props.selectedIds.includes(id)
+}
+
+function isNaForProfile(finding) {
+  // Dim findings that are N/A for the active profile
+  return props.activeProfile && finding.profile_priority === 'na'
 }
 
 function handleSelectAll() {

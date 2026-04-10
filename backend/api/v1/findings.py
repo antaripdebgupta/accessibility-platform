@@ -29,8 +29,12 @@ from schemas.finding import (
     FindingResponse,
     FindingSummary,
     FindingUpdate,
+    FindingsWithProfileResponse,
+    ProfileSummaryInline,
 )
 from storage.operations import get_presigned_url
+from profiles.definitions import get_profile
+from profiles.engine import apply_profile_to_findings, filter_by_profile, get_profile_summary
 
 router = APIRouter(tags=["Findings"])
 
@@ -74,6 +78,7 @@ def build_finding_response(
     page: Optional[Page] = None,
     criterion: Optional[WcagCriterion] = None,
     include_screenshot_url: bool = False,
+    profile_data: Optional[dict] = None,
 ) -> FindingResponse:
     """
     Build a FindingResponse from a Finding model.
@@ -83,6 +88,7 @@ def build_finding_response(
         page: Optional Page object for page_url
         criterion: Optional WcagCriterion for criterion details
         include_screenshot_url: Whether to generate presigned URL
+        profile_data: Optional dict with profile_relevant, profile_priority, profile_severity
 
     Returns:
         FindingResponse schema object
@@ -94,6 +100,11 @@ def build_finding_response(
             key=finding.screenshot_key,
             expires_hours=24,
         )
+
+    # Extract profile fields if provided
+    profile_relevant = profile_data.get("profile_relevant") if profile_data else None
+    profile_priority = profile_data.get("profile_priority") if profile_data else None
+    profile_severity = profile_data.get("profile_severity") if profile_data else None
 
     return FindingResponse(
         id=finding.id,
@@ -119,12 +130,15 @@ def build_finding_response(
         screenshot_url=screenshot_url,
         created_at=finding.created_at,
         updated_at=finding.updated_at,
+        profile_relevant=profile_relevant,
+        profile_priority=profile_priority,
+        profile_severity=profile_severity,
     )
 
 
 @router.get(
     "/{evaluation_id}/findings",
-    response_model=PaginatedResponse[FindingResponse],
+    response_model=FindingsWithProfileResponse,
 )
 async def list_findings(
     evaluation_id: UUID,
@@ -132,13 +146,21 @@ async def list_findings(
     status_filter: Optional[str] = Query(None, alias="status", description="Filter by status"),
     source: Optional[str] = Query(None, description="Filter by source"),
     criterion_id: Optional[str] = Query(None, description="Filter by WCAG criterion ID (e.g., 1.1.1)"),
+    profile: Optional[str] = Query(None, description="Disability profile ID (blind, low_vision, motor, cognitive)"),
+    exclude_na: bool = Query(False, description="Exclude findings marked N/A for the profile"),
+    profile_priority_filter: Optional[str] = Query(None, alias="profile_priority", description="Filter by profile priority (critical, high, medium, low, na)"),
     skip: int = Query(0, ge=0, description="Pagination offset"),
     limit: int = Query(50, ge=1, le=200, description="Max results per page"),
     user: AuthenticatedUser = Depends(require_permission("finding.read")),
     db: AsyncSession = Depends(get_db),
-) -> PaginatedResponse[FindingResponse]:
+) -> FindingsWithProfileResponse:
     """
-    List findings for an evaluation with optional filters.
+    List findings for an evaluation with optional filters and profile-based enrichment.
+
+    When a profile is specified, each finding is enriched with:
+    - profile_relevant: Whether this criterion is relevant for the profile
+    - profile_priority: Priority level (critical/high/medium/low/na) for this profile
+    - profile_severity: Boosted severity for this profile
 
     Args:
         evaluation_id: The evaluation UUID
@@ -146,13 +168,26 @@ async def list_findings(
         status_filter: Filter by finding status
         source: Filter by finding source (axe-core, manual)
         criterion_id: Filter by WCAG criterion ID string
+        profile: Disability profile ID to apply
+        exclude_na: If true, exclude findings marked N/A for the profile
+        profile_priority_filter: Filter by profile priority level
         skip: Pagination offset
         limit: Max results per page
 
     Returns:
-        Paginated list of findings with WCAG and page details
+        FindingsWithProfileResponse with findings and optional profile summary
     """
     evaluation = await get_evaluation_for_user(evaluation_id, user, db)
+
+    # Validate profile if provided
+    profile_obj = None
+    if profile:
+        profile_obj = get_profile(profile)
+        if profile_obj is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid profile. Must be one of: blind, low_vision, motor, cognitive",
+            )
 
     # Build base query
     base_conditions = [Finding.evaluation_id == evaluation_id]
@@ -196,53 +231,163 @@ async def list_findings(
             base_conditions.append(Finding.criterion_id == criterion_uuid)
         else:
             # No matching criterion, return empty result
-            return PaginatedResponse(total=0, items=[])
+            return FindingsWithProfileResponse(total=0, items=[], profile_summary=None)
 
-    # Get total count
+    # Get total count (before profile filtering for accurate total)
     count_query = select(func.count()).select_from(
         select(Finding).where(and_(*base_conditions)).subquery()
     )
     total_result = await db.execute(count_query)
     total = total_result.scalar() or 0
 
-    # Get paginated results with relationships
-    query = (
-        select(Finding)
-        .options(
-            selectinload(Finding.page),
-            selectinload(Finding.criterion),
+    # Get ALL results with relationships for profile processing
+    # We need to fetch all findings first if profile is active to apply profile filtering
+    if profile_obj:
+        # Fetch all findings to apply profile filtering and sorting
+        query = (
+            select(Finding)
+            .options(
+                selectinload(Finding.page),
+                selectinload(Finding.criterion),
+            )
+            .where(and_(*base_conditions))
         )
-        .where(and_(*base_conditions))
-        .order_by(
-            # Order by severity priority
-            case(
-                (Finding.severity == "critical", 1),
-                (Finding.severity == "serious", 2),
-                (Finding.severity == "moderate", 3),
-                (Finding.severity == "minor", 4),
-                (Finding.severity == "info", 5),
-                else_=6,
-            ),
-            Finding.created_at.desc(),
+        result = await db.execute(query)
+        all_findings = result.scalars().all()
+
+        # Convert to dicts for profile processing
+        findings_dicts = []
+        for f in all_findings:
+            findings_dicts.append({
+                "finding": f,
+                "criterion_code": f.criterion.criterion_id if f.criterion else None,
+                "severity": f.severity,
+            })
+
+        # Apply profile to get priority and severity info
+        # profile is guaranteed to be non-None here since profile_obj exists
+        profile_id: str = profile  # type: ignore[assignment]
+        enriched_findings = apply_profile_to_findings(findings_dicts, profile_id)
+
+        # Apply profile priority filter if specified
+        if profile_priority_filter:
+            valid_priorities = ("critical", "high", "medium", "low", "na")
+            if profile_priority_filter.lower() not in valid_priorities:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Invalid profile_priority. Must be one of: {', '.join(valid_priorities)}",
+                )
+            enriched_findings = [
+                f for f in enriched_findings
+                if f.get("profile_priority") == profile_priority_filter.lower()
+            ]
+
+        # Filter out N/A findings if requested
+        if exclude_na:
+            enriched_findings = [
+                f for f in enriched_findings
+                if f.get("profile_priority") != "na"
+            ]
+
+        # Sort by profile_priority then profile_severity
+        priority_order = {"critical": 0, "high": 1, "medium": 2, "low": 3, "na": 4}
+        severity_order = {"critical": 0, "serious": 1, "moderate": 2, "minor": 3, "info": 4}
+
+        enriched_findings.sort(
+            key=lambda f: (
+                priority_order.get(f.get("profile_priority", "medium"), 2),
+                severity_order.get(f.get("profile_severity", "moderate"), 2),
+            )
         )
-        .offset(skip)
-        .limit(limit)
-    )
 
-    result = await db.execute(query)
-    findings = result.scalars().all()
+        # Update total to reflect filtered count
+        total = len(enriched_findings)
 
-    items = [
-        build_finding_response(
-            finding=f,
-            page=f.page,
-            criterion=f.criterion,
-            include_screenshot_url=True,  # Always include URL
+        # Apply pagination
+        paginated_findings = enriched_findings[skip:skip + limit]
+
+        # Build response items
+        items = []
+        for ef in paginated_findings:
+            finding = ef["finding"]
+            items.append(
+                build_finding_response(
+                    finding=finding,
+                    page=finding.page,
+                    criterion=finding.criterion,
+                    include_screenshot_url=True,
+                    profile_data={
+                        "profile_relevant": ef.get("profile_relevant"),
+                        "profile_priority": ef.get("profile_priority"),
+                        "profile_severity": ef.get("profile_severity"),
+                    },
+                )
+            )
+
+        # Compute profile summary for all findings (before pagination)
+        all_findings_for_summary = [
+            {
+                "criterion_code": f.criterion.criterion_id if f.criterion else None,
+                "severity": f.severity,
+            }
+            for f in all_findings
+        ]
+        summary_data = get_profile_summary(all_findings_for_summary, profile_id)
+        profile_summary = ProfileSummaryInline(
+            profile_id=summary_data["profile_id"],
+            profile_name=summary_data["profile_name"],
+            critical_for_profile=summary_data["critical_for_profile"],
+            high_for_profile=summary_data["high_for_profile"],
+            not_applicable=summary_data["not_applicable"],
+            total_relevant=summary_data["total_relevant"],
+            boosted_count=summary_data["boosted_count"],
         )
-        for f in findings
-    ]
 
-    return PaginatedResponse(total=total, items=items)
+        return FindingsWithProfileResponse(
+            total=total,
+            items=items,
+            profile_summary=profile_summary,
+        )
+
+    else:
+        # No profile - use standard sorting and pagination
+        query = (
+            select(Finding)
+            .options(
+                selectinload(Finding.page),
+                selectinload(Finding.criterion),
+            )
+            .where(and_(*base_conditions))
+            .order_by(
+                # Order by severity priority
+                case(
+                    (Finding.severity == "critical", 1),
+                    (Finding.severity == "serious", 2),
+                    (Finding.severity == "moderate", 3),
+                    (Finding.severity == "minor", 4),
+                    (Finding.severity == "info", 5),
+                    else_=6,
+                ),
+                Finding.created_at.desc(),
+            )
+            .offset(skip)
+            .limit(limit)
+        )
+
+        result = await db.execute(query)
+        findings = result.scalars().all()
+
+        items = [
+            build_finding_response(
+                finding=f,
+                page=f.page,
+                criterion=f.criterion,
+                include_screenshot_url=True,
+            )
+            for f in findings
+        ]
+
+        return FindingsWithProfileResponse(total=total, items=items, profile_summary=None)
 
 
 @router.get(
@@ -251,23 +396,69 @@ async def list_findings(
 )
 async def get_findings_summary(
     evaluation_id: UUID,
+    profile: Optional[str] = Query(None, description="Disability profile ID for profile-aware summary"),
     user: AuthenticatedUser = Depends(require_permission("finding.read")),
     db: AsyncSession = Depends(get_db),
-) -> FindingSummary:
+) -> FindingSummary | ProfileSummaryInline:
     """
     Get summary of findings by severity for an evaluation.
 
+    If a profile is specified, returns profile-aware summary with priority counts.
     Only counts findings where status != DISMISSED.
 
     Args:
         evaluation_id: The evaluation UUID
+        profile: Optional profile ID for profile-aware summary
 
     Returns:
-        FindingSummary with counts by severity
+        FindingSummary with counts by severity, or ProfileSummaryInline if profile specified
     """
     evaluation = await get_evaluation_for_user(evaluation_id, user, db)
 
-    # Query to count findings by severity (excluding DISMISSED)
+    # If profile is specified, return profile summary
+    if profile:
+        profile_obj = get_profile(profile)
+        if profile_obj is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid profile. Must be one of: blind, low_vision, motor, cognitive",
+            )
+
+        # Fetch all findings with criteria for profile processing
+        query = (
+            select(Finding)
+            .options(selectinload(Finding.criterion))
+            .where(
+                and_(
+                    Finding.evaluation_id == evaluation_id,
+                    Finding.status != "DISMISSED",
+                )
+            )
+        )
+        result = await db.execute(query)
+        all_findings = result.scalars().all()
+
+        # Convert to dicts for profile processing
+        findings_for_summary = [
+            {
+                "criterion_code": f.criterion.criterion_id if f.criterion else None,
+                "severity": f.severity,
+            }
+            for f in all_findings
+        ]
+
+        summary_data = get_profile_summary(findings_for_summary, profile)
+        return ProfileSummaryInline(
+            profile_id=summary_data["profile_id"],
+            profile_name=summary_data["profile_name"],
+            critical_for_profile=summary_data["critical_for_profile"],
+            high_for_profile=summary_data["high_for_profile"],
+            not_applicable=summary_data["not_applicable"],
+            total_relevant=summary_data["total_relevant"],
+            boosted_count=summary_data["boosted_count"],
+        )
+
+    # Standard severity summary (no profile)
     query = (
         select(Finding.severity, func.count(Finding.id))
         .where(

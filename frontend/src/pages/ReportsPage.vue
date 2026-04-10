@@ -454,7 +454,7 @@
           <button
             type="button"
             class="inline-flex items-center rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
-            @click="startGeneration"
+            @click="showRegenerateModal = true"
           >
             <svg
               class="-ml-0.5 mr-2 h-4 w-4"
@@ -474,6 +474,90 @@
         </div>
       </div>
     </template>
+
+    <!-- Regenerate Report Modal -->
+    <div
+      v-if="showRegenerateModal"
+      class="fixed inset-0 z-50 overflow-y-auto"
+      aria-labelledby="modal-title"
+      role="dialog"
+      aria-modal="true"
+    >
+      <div class="flex min-h-full items-center justify-center p-4">
+        <!-- Backdrop -->
+        <div
+          class="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity"
+          @click="showRegenerateModal = false"
+        ></div>
+
+        <!-- Modal Panel -->
+        <div
+          class="relative w-full max-w-md transform rounded-lg bg-white p-6 shadow-xl transition-all"
+        >
+          <h3 class="text-lg font-semibold text-gray-900" id="modal-title">
+            Generate New Report
+          </h3>
+          <p class="mt-2 text-sm text-gray-500">
+            Select the report formats to generate:
+          </p>
+
+          <div class="mt-4 space-y-3">
+            <label class="flex items-center">
+              <input
+                v-model="reportTypeOptions.full"
+                type="checkbox"
+                class="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+              />
+              <span class="ml-2 text-sm text-gray-700">Full PDF Report</span>
+            </label>
+            <label class="flex items-center">
+              <input
+                v-model="reportTypeOptions.earl"
+                type="checkbox"
+                class="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+              />
+              <span class="ml-2 text-sm text-gray-700">EARL JSON-LD</span>
+            </label>
+            <label class="flex items-center">
+              <input
+                v-model="reportTypeOptions.csv"
+                type="checkbox"
+                class="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+              />
+              <span class="ml-2 text-sm text-gray-700">CSV Export</span>
+            </label>
+            <hr class="my-2" />
+            <label class="flex items-center">
+              <input
+                v-model="includeDismissed"
+                type="checkbox"
+                class="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+              />
+              <span class="ml-2 text-sm text-gray-700"
+                >Include dismissed findings</span
+              >
+            </label>
+          </div>
+
+          <div class="mt-6 flex justify-end space-x-3">
+            <button
+              type="button"
+              class="rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+              @click="showRegenerateModal = false"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              class="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500"
+              @click="handleRegenerate"
+            >
+              Generate
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
   </AppLayout>
 </template>
 
@@ -507,6 +591,7 @@ const { canGenerateReport } = usePermissions()
 const error = ref('')
 const generating = ref(false)
 const showOptions = ref(false)
+const showRegenerateModal = ref(false)
 const progressStep = ref(0)
 const reportTypeOptions = reactive({
   full: true,
@@ -662,6 +747,11 @@ async function startGeneration() {
     progressStep.value = 0
     alert(`Failed to start report generation: ${err.message}`)
   }
+}
+
+function handleRegenerate() {
+  showRegenerateModal.value = false
+  startGeneration()
 }
 
 function startProgressAnimation() {

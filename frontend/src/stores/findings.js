@@ -57,12 +57,23 @@ export const useFindingsStore = defineStore('findings', () => {
     () => Object.keys(activeFilters.value).length > 0,
   )
 
+  // Profile-related state
+  const profileSummary = ref(null)
+  const excludeNa = ref(false)
+  const profilePriorityFilter = ref(null)
+
   /**
    * Fetch findings for an evaluation with optional filters.
+   * Supports profile-based filtering and enrichment.
    * @param {string} evaluationId - Evaluation UUID
    * @param {Object} filterOverrides - Optional filter overrides
+   * @param {Object} profileOptions - Profile options { profileId, excludeNa, profilePriority }
    */
-  async function fetchFindings(evaluationId, filterOverrides = {}) {
+  async function fetchFindings(
+    evaluationId,
+    filterOverrides = {},
+    profileOptions = {},
+  ) {
     loadingFindings.value = true
     error.value = null
     currentEvaluationId.value = evaluationId
@@ -82,11 +93,36 @@ export const useFindingsStore = defineStore('findings', () => {
       if (appliedFilters.status) params.append('status', appliedFilters.status)
       if (appliedFilters.source) params.append('source', appliedFilters.source)
 
+      // Apply profile options
+      const { profileId, excludeNaOption, profilePriority } = profileOptions
+
+      if (profileId) {
+        params.append('profile', profileId)
+      }
+
+      if (excludeNaOption || excludeNa.value) {
+        params.append('exclude_na', 'true')
+      }
+
+      if (profilePriority || profilePriorityFilter.value) {
+        params.append(
+          'profile_priority',
+          profilePriority || profilePriorityFilter.value,
+        )
+      }
+
       const url = `/evaluations/${evaluationId}/findings?${params.toString()}`
 
       const response = await api.get(url)
       findings.value = response.data.items || []
       total.value = response.data.total || 0
+
+      // Store profile summary if returned
+      if (response.data.profile_summary) {
+        profileSummary.value = response.data.profile_summary
+      } else {
+        profileSummary.value = null
+      }
 
       return response.data
     } catch (err) {
@@ -275,6 +311,26 @@ export const useFindingsStore = defineStore('findings', () => {
       limit: 50,
     }
     currentEvaluationId.value = null
+    // Profile state
+    profileSummary.value = null
+    excludeNa.value = false
+    profilePriorityFilter.value = null
+  }
+
+  /**
+   * Set the exclude N/A toggle and refetch findings.
+   * @param {boolean} value - Whether to exclude N/A findings
+   */
+  function setExcludeNa(value) {
+    excludeNa.value = value
+  }
+
+  /**
+   * Set the profile priority filter.
+   * @param {string|null} value - Profile priority to filter by
+   */
+  function setProfilePriorityFilter(value) {
+    profilePriorityFilter.value = value || null
   }
 
   return {
@@ -288,6 +344,9 @@ export const useFindingsStore = defineStore('findings', () => {
     total,
     filters,
     pagination,
+    profileSummary,
+    excludeNa,
+    profilePriorityFilter,
     // Computed
     hasFindings,
     isLoading,
@@ -303,5 +362,7 @@ export const useFindingsStore = defineStore('findings', () => {
     clearFilters,
     clearCurrent,
     clearAll,
+    setExcludeNa,
+    setProfilePriorityFilter,
   }
 })

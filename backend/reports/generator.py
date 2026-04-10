@@ -11,6 +11,7 @@ from typing import Any
 from jinja2 import Environment, FileSystemLoader
 from markupsafe import escape
 
+from profiles.definitions import list_profiles
 from reports.verdict import VerdictResult
 
 
@@ -102,6 +103,9 @@ def generate_pdf_report(
         # Escape user-provided content in confirmed findings to prevent WeasyPrint crashes
         escaped_findings = [escape_finding_content(f) if isinstance(f, dict) else f for f in confirmed_findings]
 
+        # Get profile metadata for display
+        profiles_metadata = {p.id: {"name": p.name} for p in list_profiles()}
+
         # Build template context
         context = {
             "verdict": verdict,
@@ -112,6 +116,8 @@ def generate_pdf_report(
             "css_content": css_content,
             "confirmed_findings": escaped_findings,
             "has_failed_criteria": bool(verdict.failed_criteria) if hasattr(verdict, 'failed_criteria') else False,
+            "profile_summaries": verdict.profile_summaries if hasattr(verdict, 'profile_summaries') else {},
+            "profiles_metadata": profiles_metadata,
         }
 
         # Render HTML

@@ -70,7 +70,58 @@
   </tr>
 </table>
 
-<!-- Section 4: Failed Criteria -->
+<!-- Section 4: Disability Profile Analysis -->
+{% if profile_summaries %}
+<h2>Disability Profile Analysis</h2>
+<p style="font-size: 11px; color: #6b7280; margin-bottom: 16px">
+  This section shows how the identified accessibility issues impact users with
+  different disabilities. Each profile prioritizes findings based on the WCAG
+  criteria most relevant to that disability group.
+</p>
+
+<table class="profile-table">
+  <thead>
+    <tr>
+      <th>Profile</th>
+      <th>Relevant Findings</th>
+      <th>Critical</th>
+      <th>High</th>
+      <th>N/A</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for profile_id, summary in profile_summaries.items() %}
+    <tr>
+      <td>
+        <strong>{{ profiles_metadata[profile_id].name }}</strong>
+      </td>
+      <td><strong>{{ summary.total_relevant }}</strong></td>
+      <td>
+        {% if summary.critical_for_profile > 0 %}
+        <span class="priority-critical"
+          >{{ summary.critical_for_profile }}</span
+        >
+        {% else %}
+        <span style="color: #9ca3af">0</span>
+        {% endif %}
+      </td>
+      <td>
+        {% if summary.high_for_profile > 0 %}
+        <span class="priority-high">{{ summary.high_for_profile }}</span>
+        {% else %}
+        <span style="color: #9ca3af">0</span>
+        {% endif %}
+      </td>
+      <td>
+        <span style="color: #9ca3af">{{ summary.not_applicable }}</span>
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+
+<!-- Section 5: Failed Criteria -->
 {% if verdict.failed_criteria %}
 <h2>Failed Criteria Details</h2>
 <p style="font-size: 11px; color: #6b7280; margin-bottom: 16px">
@@ -125,7 +176,7 @@
 </div>
 {% endif %}
 
-<!-- Section 5: Methodology Note -->
+<!-- Section 6: Methodology Note -->
 <div class="methodology-note">
   <h4>Methodology</h4>
   <p>

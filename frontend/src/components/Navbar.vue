@@ -126,6 +126,20 @@
 
         <!-- Desktop Auth Buttons -->
         <div class="hidden md:flex md:items-center md:space-x-3">
+          <!-- Profile Badge (only on evaluation routes when profile is active) -->
+          <button
+            v-if="showProfileBadge"
+            type="button"
+            class="flex items-center space-x-2 rounded-lg border border-purple-200 bg-purple-50 px-3 py-1.5 text-sm font-medium text-purple-700 hover:bg-purple-100 transition-colors"
+            @click="showProfileSelector = true"
+          >
+            <ProfileBadge
+              :profile-id="profilesStore.activeProfile"
+              :show-label="true"
+            />
+            <ChevronDownIcon class="h-3 w-3 text-purple-500" />
+          </button>
+
           <template v-if="!authStore.user">
             <BaseButton to="/signin" variant="ghost" size="sm"
               >Sign In</BaseButton
@@ -297,6 +311,13 @@
       </div>
     </DisclosurePanel>
   </Disclosure>
+
+  <!-- Profile Selector Modal -->
+  <ProfileSelector
+    :show="showProfileSelector"
+    @close="showProfileSelector = false"
+    @select="handleProfileSelect"
+  />
 </template>
 
 <script setup>
@@ -320,15 +341,32 @@ import {
   PlusIcon,
   XMarkIcon,
 } from '@heroicons/vue/24/outline'
-import { computed } from 'vue'
-import { useRouter } from 'vue-router'
+import { computed, ref } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { useOrgStore } from '../stores/org'
+import { useProfilesStore } from '../stores/profiles'
 import BaseButton from './BaseButton.vue'
+import ProfileBadge from './profiles/ProfileBadge.vue'
+import ProfileSelector from './profiles/ProfileSelector.vue'
 
 const authStore = useAuthStore()
 const orgStore = useOrgStore()
+const profilesStore = useProfilesStore()
 const router = useRouter()
+const route = useRoute()
+
+// Profile selector modal state
+const showProfileSelector = ref(false)
+
+// Only show profile badge on evaluation routes
+const showProfileBadge = computed(() => {
+  return (
+    profilesStore.activeProfile &&
+    authStore.user &&
+    route.path.includes('/evaluations')
+  )
+})
 
 const navigation = [{ name: 'Home', href: '/' }]
 
@@ -373,6 +411,11 @@ async function handleLogout() {
   } catch (err) {
     console.error('Logout failed:', err)
   }
+}
+
+function handleProfileSelect(profileId) {
+  profilesStore.setActiveProfile(profileId)
+  showProfileSelector.value = false
 }
 
 // Debug logs to verify state

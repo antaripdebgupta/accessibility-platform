@@ -19,6 +19,7 @@ from models.evaluation import EvaluationProject
 from models.finding import Finding
 from models.page import Page
 from models.wcag import WcagCriterion
+from profiles.engine import get_all_profiles_summary
 
 
 @dataclass
@@ -60,6 +61,7 @@ class VerdictResult:
         wcag_version: WCAG version (e.g., "2.1")
         conformance_level: Target conformance level (e.g., "AA")
         generated_at: ISO format timestamp of when verdict was computed
+        profile_summaries: Summaries for each disability profile
     """
     verdict: str
     criteria_passed: int
@@ -75,6 +77,7 @@ class VerdictResult:
     wcag_version: str
     conformance_level: str
     generated_at: str
+    profile_summaries: dict[str, dict] = field(default_factory=dict)
 
 
 def compute_verdict(
@@ -218,7 +221,27 @@ def compute_verdict(
     else:
         verdict = "CONFORMS"
 
-    # Step 10: Return VerdictResult
+    # Step 10: Compute profile summaries for all disability profiles
+    # Convert findings to dict format expected by profile engine
+    # First, fetch ALL criteria (not just level-filtered) to get criterion codes
+    all_criteria_stmt = select(WcagCriterion)
+    all_criteria_result = db_session.execute(all_criteria_stmt)
+    all_criteria_full = {c.id: c for c in all_criteria_result.scalars().all()}
+
+    findings_for_profiles = []
+    for f in confirmed_findings_list:
+        # Get criterion code from criterion_id
+        criterion = all_criteria_full.get(f.criterion_id) if f.criterion_id else None
+        findings_for_profiles.append({
+            "id": str(f.id),
+            "criterion_code": criterion.criterion_id if criterion else None,  # Use criterion_code, not criterion_id
+            "severity": f.severity or "moderate",
+            "status": f.status,
+        })
+
+    profile_summaries = get_all_profiles_summary(findings_for_profiles)
+
+    # Step 11: Return VerdictResult
     return VerdictResult(
         verdict=verdict,
         criteria_passed=criteria_passed,
@@ -234,4 +257,5 @@ def compute_verdict(
         wcag_version=evaluation.wcag_version or "2.1",
         conformance_level=target_level,
         generated_at=datetime.utcnow().isoformat() + "Z",
+        profile_summaries=profile_summaries,
     )

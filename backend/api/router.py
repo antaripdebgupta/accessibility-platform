@@ -12,12 +12,13 @@ from api.v1.reports import router as reports_router
 from api.v1.audit import router as audit_router
 from api.v1.organisations import router as organisations_router
 from api.v1.invitations import router as invitations_router
+from api.v1.profiles import router as profiles_router
 
 # Master router — all routes live under /api/v1
 # Add new routers here as you build them
 api_router = APIRouter(prefix="/api/v1")
 
-# ── Registered routes ──────────────────────────────
+# Registered routes
 api_router.include_router(health_router)
 api_router.include_router(auth_router, prefix="/auth")
 api_router.include_router(evaluations_router, prefix="/evaluations")
@@ -54,3 +55,6 @@ api_router.include_router(organisations_router, prefix="/organisations")
 
 # Invitation routes (includes both /organisations/{id}/invitations and /invitations)
 api_router.include_router(invitations_router, prefix="")
+
+# Disability profiles routes (public, no auth required)
+api_router.include_router(profiles_router, prefix="/profiles")
