@@ -79,6 +79,12 @@ const routes = [
     meta: { requiresAuth: true },
   },
   {
+    path: '/longitudinal',
+    name: 'Longitudinal',
+    component: () => import('../pages/LongitudinalPage.vue'),
+    meta: { requiresAuth: true },
+  },
+  {
     path: '/invitations/:token',
     name: 'InvitationAccept',
     component: () => import('../pages/InvitationAcceptPage.vue'),

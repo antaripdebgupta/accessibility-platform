@@ -13,6 +13,7 @@ from api.v1.audit import router as audit_router
 from api.v1.organisations import router as organisations_router
 from api.v1.invitations import router as invitations_router
 from api.v1.profiles import router as profiles_router
+from api.v1.longitudinal import router as longitudinal_router
 
 # Master router — all routes live under /api/v1
 # Add new routers here as you build them
@@ -58,3 +59,6 @@ api_router.include_router(invitations_router, prefix="")
 
 # Disability profiles routes (public, no auth required)
 api_router.include_router(profiles_router, prefix="/profiles")
+
+# Longitudinal tracking routes (series and trends)
+api_router.include_router(longitudinal_router, prefix="")

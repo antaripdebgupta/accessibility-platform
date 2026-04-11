@@ -35,6 +35,7 @@ from reports.verdict import compute_verdict
 from storage.client import ensure_buckets
 from storage.operations import upload_bytes
 from tasks import celery_app
+from longitudinal.series import register_evaluation_in_series_sync
 
 logger = get_logger(__name__)
 
@@ -396,7 +397,28 @@ def generate_report(
             verdict=verdict.verdict,
         )
 
-        # Step 8: Return result
+        # Step 8: Register evaluation in longitudinal series (fire-and-forget)
+        try:
+            snapshot = register_evaluation_in_series_sync(session, UUID(evaluation_id))
+            if snapshot:
+                session.commit()
+                logger.info(
+                    "longitudinal_series_registered",
+                    evaluation_id=evaluation_id,
+                    series_id=str(snapshot.series_id),
+                    snapshot_id=str(snapshot.id),
+                )
+        except Exception as series_error:
+            # Series registration failure must NOT fail report generation
+            logger.warning(
+                "longitudinal_series_registration_failed",
+                evaluation_id=evaluation_id,
+                error=str(series_error),
+            )
+            # Rollback any partial series changes but don't propagate
+            session.rollback()
+
+        # Step 9: Return result
         return {
             "evaluation_id": evaluation_id,
             "reports_generated": len(reports_generated),

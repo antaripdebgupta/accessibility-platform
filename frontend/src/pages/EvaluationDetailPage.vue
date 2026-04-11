@@ -88,6 +88,69 @@
         />
       </div>
 
+      <!-- Series Info Banner (shown when COMPLETE and series exists) -->
+      <div
+        v-if="evaluation.status === 'COMPLETE' && evaluationSeries"
+        class="mb-8 rounded-lg border border-indigo-200 bg-indigo-50 p-4 dark:border-indigo-700 dark:bg-indigo-900/20"
+      >
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-3">
+            <div class="rounded-lg bg-indigo-100 p-2 dark:bg-indigo-800">
+              <svg
+                class="h-5 w-5 text-indigo-600 dark:text-indigo-400"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+                aria-hidden="true"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
+                />
+              </svg>
+            </div>
+            <div>
+              <p class="font-medium text-indigo-900 dark:text-indigo-100">
+                Part of evaluation series
+              </p>
+              <p class="text-sm text-indigo-700 dark:text-indigo-300">
+                {{
+                  evaluationSeries.display_name || evaluationSeries.target_url
+                }}
+                •
+                {{ evaluationSeries.snapshot_count || 1 }} evaluation{{
+                  evaluationSeries.snapshot_count !== 1 ? 's' : ''
+                }}
+              </p>
+            </div>
+          </div>
+          <RouterLink
+            :to="{
+              path: '/longitudinal',
+              query: { series: evaluationSeries.id },
+            }"
+            class="inline-flex items-center rounded-md px-3 py-2 text-sm font-medium text-indigo-600 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
+          >
+            View Trends
+            <svg
+              class="ml-1.5 h-4 w-4"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M9 5l7 7-7 7"
+              />
+            </svg>
+          </RouterLink>
+        </div>
+      </div>
+
       <!-- Stats Section (always shown) -->
       <div class="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-4">
         <div class="rounded-lg border border-gray-200 bg-white p-6">
@@ -323,6 +386,7 @@ import api from '../lib/api'
 import { useAuthStore } from '../stores/auth'
 import { useEvaluationsStore } from '../stores/evaluations'
 import { useFindingsStore } from '../stores/findings'
+import { useLongitudinalStore } from '../stores/longitudinal'
 import { useReportsStore } from '../stores/reports'
 
 const route = useRoute()
@@ -330,12 +394,14 @@ const router = useRouter()
 const authStore = useAuthStore()
 const evaluationsStore = useEvaluationsStore()
 const findingsStore = useFindingsStore()
+const longitudinalStore = useLongitudinalStore()
 const reportsStore = useReportsStore()
 const { canDeleteEvaluation, canViewAuditLog } = usePermissions()
 
 const error = ref('')
 const activityLogExpanded = ref(false)
 const pollingInterval = ref(null)
+const evaluationSeries = ref(null)
 
 // Stats
 const stats = reactive({
@@ -410,6 +476,21 @@ async function fetchLatestReport() {
     await reportsStore.fetchLatest(evaluation.value.id)
   } catch (err) {
     console.error('Failed to fetch latest report:', err)
+  }
+}
+
+async function fetchEvaluationSeries() {
+  if (!evaluation.value) return
+  if (evaluation.value.status !== 'COMPLETE') return
+
+  try {
+    const series = await longitudinalStore.fetchEvaluationSeries(
+      evaluation.value.id,
+    )
+    evaluationSeries.value = series
+  } catch (err) {
+    // Series may not exist yet, which is fine
+    console.debug('No series found for evaluation:', err)
   }
 }
 
@@ -491,6 +572,7 @@ onMounted(async () => {
     await evaluationsStore.fetchOne(id)
     await fetchStats()
     await fetchLatestReport()
+    await fetchEvaluationSeries()
 
     // Start polling if evaluation is in progress
     if (shouldPoll()) {

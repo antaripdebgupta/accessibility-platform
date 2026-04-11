@@ -15,6 +15,8 @@ from models.page import Page
 from models.finding import Finding
 from models.report import Report
 from models.audit_log import AuditLog
+from models.evaluation_series import EvaluationSeries
+from models.series_snapshot import SeriesSnapshot
 
 __all__ = [
     "Organisation",
@@ -27,4 +29,6 @@ __all__ = [
     "Finding",
     "Report",
     "AuditLog",
+    "EvaluationSeries",
+    "SeriesSnapshot",
 ]

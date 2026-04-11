@@ -17,6 +17,7 @@ from sqlalchemy.orm import selectinload
 from core.auth import get_current_user, require_permission, AuthenticatedUser
 from core.audit import log_action, AuditAction
 from core.config import settings
+from core.logging import get_logger
 from core.permissions import can
 from db.session import get_db
 from models.evaluation import EvaluationProject
@@ -35,8 +36,10 @@ from schemas.finding import (
 from storage.operations import get_presigned_url
 from profiles.definitions import get_profile
 from profiles.engine import apply_profile_to_findings, filter_by_profile, get_profile_summary
+from longitudinal.series import update_snapshot
 
 router = APIRouter(tags=["Findings"])
+logger = get_logger(__name__)
 
 
 async def get_evaluation_for_user(
@@ -749,6 +752,28 @@ async def update_finding(
 
     # Commit both the finding update and audit log together
     await db.commit()
+
+    # Update longitudinal snapshot to reflect finding status change (fire-and-forget)
+    if new_status in ("CONFIRMED", "DISMISSED", "OPEN"):
+        try:
+            await update_snapshot(db, finding.evaluation_id)
+            await db.commit()
+            logger.debug(
+                "longitudinal_snapshot_updated",
+                finding_id=str(finding_id),
+                evaluation_id=str(finding.evaluation_id),
+                new_status=new_status,
+            )
+        except Exception as snapshot_error:
+            # Snapshot update failure must NOT fail the finding update
+            logger.warning(
+                "longitudinal_snapshot_update_failed",
+                finding_id=str(finding_id),
+                evaluation_id=str(finding.evaluation_id),
+                error=str(snapshot_error),
+            )
+            # Rollback snapshot changes but finding update already committed
+            await db.rollback()
 
     # Re-fetch with relationships after commit
     stmt = (

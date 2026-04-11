@@ -19,6 +19,7 @@ if TYPE_CHECKING:
     from models.user_org_role import UserOrganisationRole
     from models.evaluation import EvaluationProject
     from models.invitation import Invitation
+    from models.evaluation_series import EvaluationSeries
 
 
 class Organisation(Base):
@@ -73,6 +74,12 @@ class Organisation(Base):
 
     invitations: Mapped[List["Invitation"]] = relationship(
         "Invitation",
+        back_populates="organisation",
+        cascade="all, delete-orphan",
+    )
+
+    evaluation_series: Mapped[List["EvaluationSeries"]] = relationship(
+        "EvaluationSeries",
         back_populates="organisation",
         cascade="all, delete-orphan",
     )

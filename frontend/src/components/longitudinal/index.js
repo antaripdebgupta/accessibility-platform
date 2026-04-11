@@ -1,0 +1,6 @@
+export { default as CriterionTrendChart } from './CriterionTrendChart.vue'
+export { default as DirectionBadge } from './DirectionBadge.vue'
+export { default as RegressionAlert } from './RegressionAlert.vue'
+export { default as TotalFindingsChart } from './TotalFindingsChart.vue'
+export { default as TrendSummaryCards } from './TrendSummaryCards.vue'
+export { default as VerdictHistoryChart } from './VerdictHistoryChart.vue'
