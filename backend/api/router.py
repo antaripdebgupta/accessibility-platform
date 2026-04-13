@@ -4,6 +4,7 @@ from api.v1.auth import router as auth_router
 from api.v1.evaluations import router as evaluations_router
 from api.v1.exploration import router as exploration_router
 from api.v1.tasks import router as tasks_router
+from api.v1.sse import router as sse_router
 from api.v1.scanning import router as scanning_router
 from api.v1.sampling import router as sampling_router
 from api.v1.findings import router as findings_router
@@ -50,6 +51,9 @@ api_router.include_router(wcag_router, prefix="/wcag")
 
 # Task status routes
 api_router.include_router(tasks_router, prefix="/tasks")
+
+# SSE streaming routes (nested under /tasks for real-time task events)
+api_router.include_router(sse_router, prefix="/tasks")
 
 # Organisation management routes
 api_router.include_router(organisations_router, prefix="/organisations")

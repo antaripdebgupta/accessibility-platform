@@ -3,6 +3,7 @@ Accessibility Scanning Tasks.
 
 Celery tasks for running accessibility scans on web pages.
 Uses Playwright + axe-core for automated WCAG compliance testing.
+Publishes SSE events for real-time progress updates.
 """
 
 import asyncio
@@ -18,6 +19,7 @@ from sqlalchemy import create_engine, select, and_, func
 from sqlalchemy.orm import Session, sessionmaker
 
 from core.config import settings
+from core.events import publish_task_event, make_event
 from core.logging import get_logger
 from models.evaluation import EvaluationProject
 from models.finding import Finding
@@ -205,6 +207,7 @@ def scan_pages(
 
     This task uses a single shared browser context for all pages,
     dramatically reducing scan time (saves 2-4 seconds per page).
+    Publishes SSE events for real-time progress updates.
 
     Args:
         evaluation_id: The evaluation UUID string
@@ -214,9 +217,11 @@ def scan_pages(
     Returns:
         dict with evaluation_id, pages_scanned, total_findings, pages_with_errors
     """
+    task_id = self.request.id
+
     logger.info(
         "scan_task_starting",
-        task_id=self.request.id,
+        task_id=task_id,
         evaluation_id=evaluation_id,
         page_ids=page_ids,
     )
@@ -322,6 +327,16 @@ def scan_pages(
             pages_to_scan=len(pages),
         )
 
+        # Publish: Scan started
+        publish_task_event(task_id, make_event("progress", {
+            "step": "started",
+            "message": "Scan started",
+            "pages_total": len(pages),
+            "pages_scanned": 0,
+            "percent": 0,
+            "evaluation_id": evaluation_id,
+        }))
+
         # Build WCAG criteria map: criterion_id_string -> UUID string
         criteria_stmt = select(WcagCriterion)
         criteria_result = session.execute(criteria_stmt)
@@ -346,6 +361,7 @@ def scan_pages(
         # FIX 4 & 5: Run all scans with shared browser context
         # ─────────────────────────────────────────────────────────────────────
         pages_data = [(str(page.id), page.url, str(page.id)) for page in pages]
+        total_pages = len(pages)
 
         # Run async scan with shared browser
         scan_results = asyncio.run(
@@ -356,9 +372,20 @@ def scan_pages(
         results_map = {page_id: result for page_id, result in scan_results}
 
         # Process each page's results
-        for page in pages:
+        for page_index, page in enumerate(pages):
             page_id_str = str(page.id)
             axe_result = results_map.get(page_id_str)
+
+            # Publish: Scanning page event (before processing)
+            publish_task_event(task_id, make_event("progress", {
+                "step": "scanning_page",
+                "message": f"Scanning: {page.url}",
+                "current_page": page.url,
+                "pages_scanned": page_index,
+                "pages_total": total_pages,
+                "percent": int((page_index / total_pages) * 100),
+                "evaluation_id": evaluation_id,
+            }))
 
             # Remove from unscanned list
             if page in unscanned_pages:
@@ -459,18 +486,40 @@ def scan_pages(
                 failure_reason=None,
             )
 
+            # Publish: Page complete event
+            publish_task_event(task_id, make_event("progress", {
+                "step": "page_complete",
+                "message": f"Scanned {page.url} — {page_findings_inserted} issues found",
+                "last_page": page.url,
+                "findings_on_page": page_findings_inserted,
+                "pages_scanned": pages_scanned,
+                "pages_total": total_pages,
+                "percent": int((pages_scanned / total_pages) * 100),
+                "evaluation_id": evaluation_id,
+            }))
+
         # Update evaluation status to REPORTING
         evaluation.status = "REPORTING"
         session.commit()
 
         logger.info(
             "scan_task_completed",
-            task_id=self.request.id,
+            task_id=task_id,
             evaluation_id=evaluation_id,
             pages_scanned=pages_scanned,
             total_findings=total_findings,
             pages_with_errors=pages_with_errors,
         )
+
+        # Publish: Scan complete event
+        publish_task_event(task_id, make_event("complete", {
+            "step": "complete",
+            "message": f"Scan complete — {total_findings} issues found across {pages_scanned} pages",
+            "total_findings": total_findings,
+            "pages_scanned": pages_scanned,
+            "pages_with_errors": pages_with_errors,
+            "evaluation_id": evaluation_id,
+        }))
 
         return {
             "evaluation_id": evaluation_id,
@@ -485,10 +534,19 @@ def scan_pages(
     except SoftTimeLimitExceeded:
         logger.error(
             "scan_soft_time_limit_exceeded",
-            task_id=self.request.id,
+            task_id=task_id,
             evaluation_id=evaluation_id,
             unscanned_pages_count=len(unscanned_pages),
         )
+
+        # Publish: Error event for timeout
+        publish_task_event(task_id, make_event("error", {
+            "step": "timeout",
+            "message": f"Scan timed out. {len(unscanned_pages)} pages were not scanned.",
+            "pages_scanned": pages_scanned,
+            "unscanned_count": len(unscanned_pages),
+            "evaluation_id": evaluation_id,
+        }))
 
         try:
             # Mark remaining pages as SCAN_ERROR
@@ -529,10 +587,17 @@ def scan_pages(
     except Exception as e:
         logger.error(
             "scan_task_failed",
-            task_id=self.request.id,
+            task_id=task_id,
             evaluation_id=evaluation_id,
             error=str(e),
         )
+
+        # Publish: Error event
+        publish_task_event(task_id, make_event("error", {
+            "step": "error",
+            "message": str(e),
+            "evaluation_id": evaluation_id,
+        }))
 
         # Don't change evaluation status on fatal error - leave as AUDITING
         session.rollback()

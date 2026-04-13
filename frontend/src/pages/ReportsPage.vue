@@ -302,11 +302,13 @@
                 <li
                   :class="[
                     'flex items-center transition-colors',
-                    progressStep >= 1 ? 'text-indigo-700' : 'text-gray-400',
+                    reportProgress.step >= 1
+                      ? 'text-indigo-700'
+                      : 'text-gray-400',
                   ]"
                 >
                   <svg
-                    v-if="progressStep > 1"
+                    v-if="reportProgress.step > 1"
                     class="mr-2 h-5 w-5 text-green-500"
                     fill="none"
                     stroke="currentColor"
@@ -319,18 +321,23 @@
                       d="M5 13l4 4L19 7"
                     />
                   </svg>
-                  <LoadingSpinner v-else-if="progressStep === 1" size="sm" />
+                  <LoadingSpinner
+                    v-else-if="reportProgress.step === 1"
+                    size="sm"
+                  />
                   <span v-else class="mr-2 h-5 w-5"></span>
                   <span>Computing conformance verdict...</span>
                 </li>
                 <li
                   :class="[
                     'flex items-center transition-colors',
-                    progressStep >= 2 ? 'text-indigo-700' : 'text-gray-400',
+                    reportProgress.step >= 2
+                      ? 'text-indigo-700'
+                      : 'text-gray-400',
                   ]"
                 >
                   <svg
-                    v-if="progressStep > 2"
+                    v-if="reportProgress.step > 2"
                     class="mr-2 h-5 w-5 text-green-500"
                     fill="none"
                     stroke="currentColor"
@@ -343,18 +350,23 @@
                       d="M5 13l4 4L19 7"
                     />
                   </svg>
-                  <LoadingSpinner v-else-if="progressStep === 2" size="sm" />
+                  <LoadingSpinner
+                    v-else-if="reportProgress.step === 2"
+                    size="sm"
+                  />
                   <span v-else class="mr-2 h-5 w-5"></span>
-                  <span>Rendering HTML template...</span>
+                  <span>Generating Full Report...</span>
                 </li>
                 <li
                   :class="[
                     'flex items-center transition-colors',
-                    progressStep >= 3 ? 'text-indigo-700' : 'text-gray-400',
+                    reportProgress.step >= 3
+                      ? 'text-indigo-700'
+                      : 'text-gray-400',
                   ]"
                 >
                   <svg
-                    v-if="progressStep > 3"
+                    v-if="reportProgress.step > 3"
                     class="mr-2 h-5 w-5 text-green-500"
                     fill="none"
                     stroke="currentColor"
@@ -367,18 +379,23 @@
                       d="M5 13l4 4L19 7"
                     />
                   </svg>
-                  <LoadingSpinner v-else-if="progressStep === 3" size="sm" />
+                  <LoadingSpinner
+                    v-else-if="reportProgress.step === 3"
+                    size="sm"
+                  />
                   <span v-else class="mr-2 h-5 w-5"></span>
-                  <span>Generating PDF...</span>
+                  <span>Generating EARL export...</span>
                 </li>
                 <li
                   :class="[
                     'flex items-center transition-colors',
-                    progressStep >= 4 ? 'text-indigo-700' : 'text-gray-400',
+                    reportProgress.step >= 4
+                      ? 'text-indigo-700'
+                      : 'text-gray-400',
                   ]"
                 >
                   <svg
-                    v-if="progressStep > 4"
+                    v-if="reportProgress.step > 4"
                     class="mr-2 h-5 w-5 text-green-500"
                     fill="none"
                     stroke="currentColor"
@@ -391,15 +408,20 @@
                       d="M5 13l4 4L19 7"
                     />
                   </svg>
-                  <LoadingSpinner v-else-if="progressStep === 4" size="sm" />
+                  <LoadingSpinner
+                    v-else-if="reportProgress.step === 4"
+                    size="sm"
+                  />
                   <span v-else class="mr-2 h-5 w-5"></span>
-                  <span>Uploading to storage...</span>
+                  <span>Generating CSV export...</span>
                 </li>
               </ul>
             </div>
 
             <p class="mt-6 text-sm text-indigo-600">
-              This usually takes 15–30 seconds.
+              {{
+                reportProgress.message || 'This usually takes 15–30 seconds.'
+              }}
             </p>
           </div>
         </div>
@@ -592,7 +614,7 @@ const error = ref('')
 const generating = ref(false)
 const showOptions = ref(false)
 const showRegenerateModal = ref(false)
-const progressStep = ref(0)
+const currentTaskId = ref(null)
 const reportTypeOptions = reactive({
   full: true,
   earl: true,
@@ -603,9 +625,6 @@ const failedCriteria = ref([])
 const findingsStats = reactive({
   pagesScanned: 0,
 })
-
-// Progress step timer
-let progressTimer = null
 
 // Computed
 const evaluationId = computed(() => route.params.id)
@@ -618,6 +637,27 @@ const isReadyToGenerate = computed(() => {
 
 const latestReport = computed(() => {
   return reportsStore.latestFullReport || reportsStore.reports[0] || null
+})
+
+// SSE-driven report generation progress
+const reportProgress = computed(() => {
+  if (!currentTaskId.value) {
+    return { step: 1, message: 'Starting...', percent: 0 }
+  }
+  const progress = tasksStore.getProgress(currentTaskId.value)
+  // Map SSE step names to step numbers
+  const stepMap = {
+    verdict_computed: 2,
+    full_generated: 3,
+    earl_generated: 4,
+    csv_generated: 5,
+  }
+  const step = stepMap[progress?.step] || 1
+  return {
+    step,
+    message: progress?.message || 'Generating report...',
+    percent: progress?.percent || 10,
+  }
 })
 
 // Methods
@@ -692,7 +732,6 @@ async function loadFailedCriteria() {
 
 async function startGeneration() {
   generating.value = true
-  progressStep.value = 1
 
   // Build report types array
   const reportTypes = []
@@ -712,18 +751,15 @@ async function startGeneration() {
     })
 
     const taskId = response.task_id
+    currentTaskId.value = taskId
 
-    // Start fake progress animation
-    startProgressAnimation()
-
-    // Start polling for task completion
+    // Start polling for task completion (uses SSE with polling fallback)
     tasksStore.startPolling(
       taskId,
       async (result) => {
         // Success
-        stopProgressAnimation()
+        currentTaskId.value = null
         generating.value = false
-        progressStep.value = 0
 
         // Refresh reports
         await reportsStore.fetchReports(evaluationId.value)
@@ -735,16 +771,15 @@ async function startGeneration() {
       },
       (errorMessage) => {
         // Error
-        stopProgressAnimation()
+        currentTaskId.value = null
         generating.value = false
-        progressStep.value = 0
 
         alert(`Report generation failed: ${errorMessage}`)
       },
     )
   } catch (err) {
     generating.value = false
-    progressStep.value = 0
+    currentTaskId.value = null
     alert(`Failed to start report generation: ${err.message}`)
   }
 }
@@ -754,30 +789,6 @@ function handleRegenerate() {
   startGeneration()
 }
 
-function startProgressAnimation() {
-  // Fake progress steps
-  progressStep.value = 1
-
-  progressTimer = setTimeout(() => {
-    progressStep.value = 2
-
-    progressTimer = setTimeout(() => {
-      progressStep.value = 3
-
-      progressTimer = setTimeout(() => {
-        progressStep.value = 4
-      }, 3000)
-    }, 3000)
-  }, 2000)
-}
-
-function stopProgressAnimation() {
-  if (progressTimer) {
-    clearTimeout(progressTimer)
-    progressTimer = null
-  }
-}
-
 // Lifecycle
 onMounted(async () => {
   await loadData()
@@ -785,7 +796,6 @@ onMounted(async () => {
 
 onUnmounted(() => {
   tasksStore.stopAll()
-  stopProgressAnimation()
   reportsStore.clearReports()
 })
 </script>

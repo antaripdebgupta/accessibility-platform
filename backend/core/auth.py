@@ -11,7 +11,7 @@ from datetime import datetime
 from typing import Optional, Tuple, Set
 from uuid import UUID
 
-from fastapi import Depends, HTTPException, Path, status, Header
+from fastapi import Depends, HTTPException, Path, Query, status, Header
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -506,3 +506,130 @@ def require_org_role(*allowed_roles: str):
         return current_user, evaluation.organisation, org_role.role
 
     return check_org_role
+
+
+async def get_current_user_sse(
+    token: str | None = Query(None, description="Firebase auth token for SSE (EventSource can't set headers)"),
+    authorization: str | None = Header(None, alias="Authorization"),
+    x_organisation_id: str | None = Header(None, alias="X-Organisation-ID"),
+    db: AsyncSession = Depends(get_db),
+) -> AuthenticatedUser:
+    """
+    Extract and verify auth token for SSE endpoints.
+
+    SSE/EventSource API does not support custom headers, so we accept
+    the token via query parameter as a fallback.
+
+    Priority:
+    1. Authorization header (Bearer token)
+    2. ?token= query parameter
+
+    Args:
+        token: Optional query param token (for EventSource)
+        authorization: Optional Authorization header
+        x_organisation_id: Optional organisation ID header
+        db: Async database session
+
+    Returns:
+        AuthenticatedUser object with user data, role, and permissions
+
+    Raises:
+        HTTPException(401): If token is missing, invalid, or expired
+    """
+    # Extract raw token - prefer header, fall back to query param
+    raw_token = None
+
+    if authorization:
+        if authorization.startswith("Bearer "):
+            raw_token = authorization[7:]
+        else:
+            raw_token = authorization
+    elif token:
+        raw_token = token
+
+    if not raw_token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required. Provide token via Authorization header or ?token= query parameter.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    # Verify the token
+    try:
+        claims = verify_token(raw_token)
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid authentication credentials",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    firebase_uid = claims.get("uid")
+    email = claims.get("email")
+    display_name = claims.get("name")
+
+    if not firebase_uid or not email:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token claims: missing uid or email",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    # Look up user by firebase_uid with organisation roles eagerly loaded
+    stmt = (
+        select(User)
+        .options(selectinload(User.organisation_roles).selectinload(UserOrganisationRole.organisation))
+        .where(User.firebase_uid == firebase_uid)
+    )
+    result = await db.execute(stmt)
+    user = result.scalar_one_or_none()
+
+    if user is None:
+        # For SSE, we don't auto-create users - they should already exist
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User not found. Please sign in first.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    # Determine current organisation and role
+    current_org_id: Optional[UUID] = None
+    current_role: Optional[str] = None
+
+    if user.organisation_roles:
+        if x_organisation_id:
+            try:
+                org_uuid = UUID(x_organisation_id)
+            except Exception:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Invalid X-Organisation-ID format. Must be a valid UUID.",
+                )
+
+            # Verify membership and get role
+            for r in user.organisation_roles:
+                if r.organisation_id == org_uuid:
+                    current_org_id = org_uuid
+                    current_role = r.role
+                    break
+
+            if current_org_id is None:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="You are not a member of this organisation",
+                )
+        else:
+            # Fall back to first organisation
+            first_role = user.organisation_roles[0]
+            current_org_id = first_role.organisation_id
+            current_role = first_role.role
+
+        # Set RLS context
+        if current_org_id:
+            await set_rls_context(db, str(user.id), str(current_org_id))
+
+    return AuthenticatedUser(
+        user=user,
+        current_organisation_id=current_org_id,
+        role=current_role,
+    )

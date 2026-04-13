@@ -236,6 +236,48 @@
             {{ isScanning ? 'Scanning...' : 'Start Accessibility Audit' }}
           </button>
         </div>
+
+        <!-- Scanning Progress (SSE-driven) -->
+        <div
+          v-if="isScanning"
+          class="mt-6 rounded-lg border border-indigo-100 bg-indigo-50 p-4"
+        >
+          <div class="flex items-center justify-between mb-2">
+            <span class="text-sm font-medium text-indigo-800">
+              {{
+                scanProgress.message ||
+                'Scanning pages for accessibility issues...'
+              }}
+            </span>
+            <span class="text-sm text-indigo-600">
+              {{ scanProgress.pagesScanned || 0 }} / {{ sampleSize }} pages
+            </span>
+          </div>
+          <div class="h-2 w-full overflow-hidden rounded-full bg-indigo-200">
+            <div
+              class="h-2 rounded-full bg-indigo-600 transition-all duration-300"
+              :style="{ width: `${scanProgress.percent || 5}%` }"
+            ></div>
+          </div>
+          <!-- Current page being scanned -->
+          <div
+            v-if="scanProgress.currentPage"
+            class="mt-2 text-xs text-indigo-600 truncate"
+          >
+            Scanning: {{ truncateUrl(scanProgress.currentPage) }}
+          </div>
+          <!-- Last completed page -->
+          <div v-if="scanProgress.lastPage" class="mt-1 text-xs text-gray-500">
+            <span class="text-green-600">✓</span> Completed:
+            {{ truncateUrl(scanProgress.lastPage) }}
+            <span
+              v-if="scanProgress.findingsOnPage"
+              class="ml-1 text-orange-600"
+            >
+              ({{ scanProgress.findingsOnPage }} issues found)
+            </span>
+          </div>
+        </div>
       </div>
 
       <!-- Sample Summary -->
@@ -504,7 +546,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import ErrorToast from '../components/common/ErrorToast.vue'
 import LoadingSpinner from '../components/common/LoadingSpinner.vue'
@@ -530,6 +572,7 @@ const error = ref('')
 const showHelp = ref(false)
 const loadingPages = ref(false)
 const applying = ref(false)
+const currentTaskId = ref(null)
 
 // Pagination (for local filtering)
 const paginationSkip = ref(0)
@@ -581,6 +624,29 @@ const randomPageCount = computed(() => {
 
 const isScanning = computed(() => {
   return evaluation.value?.status === 'AUDITING'
+})
+
+// SSE-driven scan progress
+const scanProgress = computed(() => {
+  if (!currentTaskId.value) {
+    return {
+      percent: 5,
+      message: 'Starting scan...',
+      pagesScanned: 0,
+      currentPage: null,
+      lastPage: null,
+      findingsOnPage: 0,
+    }
+  }
+  const progress = tasksStore.getProgress(currentTaskId.value)
+  return {
+    percent: progress?.percent || 5,
+    message: progress?.message || 'Scanning pages...',
+    pagesScanned: progress?.pagesScanned || 0,
+    currentPage: progress?.currentPage || null,
+    lastPage: progress?.lastPage || null,
+    findingsOnPage: progress?.findingsOnPage || 0,
+  }
 })
 
 // Methods
@@ -667,15 +733,17 @@ async function handleStartAudit() {
     const response = await api.post(`/evaluations/${evaluationId.value}/scan`)
 
     const taskId = response.data.task_id
+    currentTaskId.value = taskId
 
     // Refresh evaluation to get updated status
     await evaluationsStore.fetchOne(evaluationId.value)
 
-    // Start polling for task completion
+    // Start polling for task completion (uses SSE with polling fallback)
     tasksStore.startPolling(
       taskId,
       // On success
       async (result) => {
+        currentTaskId.value = null
         await evaluationsStore.fetchOne(evaluationId.value)
         // Redirect to findings page after successful audit
         router.push({
@@ -685,6 +753,7 @@ async function handleStartAudit() {
       },
       // On error
       (errorMsg) => {
+        currentTaskId.value = null
         showErrorToast('Scan failed', errorMsg)
         evaluationsStore.fetchOne(evaluationId.value)
       },
@@ -717,5 +786,10 @@ onMounted(async () => {
   } finally {
     loading.value = false
   }
+})
+
+onUnmounted(() => {
+  // Clean up any active SSE/polling on unmount
+  tasksStore.stopAll()
 })
 </script>

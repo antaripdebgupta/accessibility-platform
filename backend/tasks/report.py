@@ -9,6 +9,7 @@ Handles the complete report generation workflow including:
 - EARL JSON-LD export
 - CSV export
 - MinIO storage upload
+Publishes SSE events for real-time progress updates.
 """
 
 import json
@@ -21,6 +22,7 @@ from sqlalchemy import create_engine, select, and_
 from sqlalchemy.orm import Session, sessionmaker
 
 from core.config import settings
+from core.events import publish_task_event, make_event
 from core.logging import get_logger
 from models.audit_log import AuditLog
 from models.evaluation import EvaluationProject
@@ -123,7 +125,8 @@ def generate_report(
     Generate accessibility reports for an evaluation.
 
     This is a synchronous Celery task that generates PDF, EARL, and CSV
-    reports and uploads them to MinIO storage.
+    reports and uploads them to MinIO storage. Publishes SSE events for
+    real-time progress updates.
 
     Args:
         evaluation_id: The evaluation UUID string
@@ -134,13 +137,22 @@ def generate_report(
     Returns:
         dict with evaluation_id, reports_generated, verdict, criteria_failed, total_findings
     """
+    task_id = self.request.id
+
     logger.info(
         "report_generation_starting",
-        task_id=self.request.id,
+        task_id=task_id,
         evaluation_id=evaluation_id,
         report_types=report_types,
         include_dismissed=include_dismissed,
     )
+
+    # Publish: Report generation started
+    publish_task_event(task_id, make_event("progress", {
+        "step": "started",
+        "message": "Report generation started",
+        "evaluation_id": evaluation_id,
+    }))
 
     # Ensure MinIO buckets exist
     ensure_buckets()
@@ -239,6 +251,17 @@ def generate_report(
             total_findings=verdict.total_findings,
         )
 
+        # Publish: Verdict computed event
+        publish_task_event(task_id, make_event("progress", {
+            "step": "verdict_computed",
+            "message": f"Conformance verdict: {verdict.verdict}",
+            "verdict": verdict.verdict,
+            "criteria_passed": verdict.criteria_passed,
+            "criteria_failed": verdict.criteria_failed,
+            "total_findings": verdict.total_findings,
+            "evaluation_id": evaluation_id,
+        }))
+
         # Step 5: Generate reports
         timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
         reports_generated = []
@@ -277,6 +300,14 @@ def generate_report(
                         size=len(pdf_bytes),
                     )
 
+                    # Publish: Full PDF generated event
+                    publish_task_event(task_id, make_event("progress", {
+                        "step": "full_generated",
+                        "message": "PDF report generated",
+                        "report_type": "full",
+                        "evaluation_id": evaluation_id,
+                    }))
+
                 elif report_type == "earl":
                     # Generate EARL JSON-LD
                     earl_dict = generate_earl(evaluation, confirmed_findings, verdict)
@@ -310,6 +341,14 @@ def generate_report(
                         size=len(earl_bytes),
                     )
 
+                    # Publish: EARL generated event
+                    publish_task_event(task_id, make_event("progress", {
+                        "step": "earl_generated",
+                        "message": "EARL JSON-LD generated",
+                        "report_type": "earl",
+                        "evaluation_id": evaluation_id,
+                    }))
+
                 elif report_type == "csv":
                     # Generate CSV
                     csv_bytes = generate_csv(confirmed_findings)
@@ -334,6 +373,14 @@ def generate_report(
                     )
                     session.add(report)
                     reports_generated.append("csv")
+
+                    # Publish: CSV generated event
+                    publish_task_event(task_id, make_event("progress", {
+                        "step": "csv_generated",
+                        "message": "CSV export generated",
+                        "report_type": "csv",
+                        "evaluation_id": evaluation_id,
+                    }))
 
                     logger.info(
                         "report_csv_generated",
@@ -391,7 +438,7 @@ def generate_report(
 
         logger.info(
             "report_generation_completed",
-            task_id=self.request.id,
+            task_id=task_id,
             evaluation_id=evaluation_id,
             reports_generated=len(reports_generated),
             verdict=verdict.verdict,
@@ -418,6 +465,18 @@ def generate_report(
             # Rollback any partial series changes but don't propagate
             session.rollback()
 
+        # Publish: Report generation complete event
+        publish_task_event(task_id, make_event("complete", {
+            "step": "complete",
+            "message": "All reports generated successfully",
+            "verdict": verdict.verdict,
+            "criteria_passed": verdict.criteria_passed,
+            "criteria_failed": verdict.criteria_failed,
+            "total_findings": verdict.total_findings,
+            "reports_generated": reports_generated,
+            "evaluation_id": evaluation_id,
+        }))
+
         # Step 9: Return result
         return {
             "evaluation_id": evaluation_id,
@@ -432,10 +491,17 @@ def generate_report(
     except Exception as e:
         logger.error(
             "report_generation_failed",
-            task_id=self.request.id,
+            task_id=task_id,
             evaluation_id=evaluation_id,
             error=str(e),
         )
+
+        # Publish: Error event
+        publish_task_event(task_id, make_event("error", {
+            "step": "error",
+            "message": str(e),
+            "evaluation_id": evaluation_id,
+        }))
 
         # Don't reset evaluation status to AUDITING — leave it at REPORTING
         # so user can retry

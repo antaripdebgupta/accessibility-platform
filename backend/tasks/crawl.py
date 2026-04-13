@@ -3,6 +3,7 @@ Website Crawling Tasks
 
 Celery tasks for crawling websites to discover pages for accessibility evaluation.
 Uses Playwright spider for async crawling with synchronous DB operations.
+Publishes SSE events for real-time progress updates.
 """
 
 import asyncio
@@ -14,6 +15,7 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from core.config import settings
+from core.events import publish_task_event, make_event
 from core.logging import get_logger
 from crawler.spider import crawl as spider_crawl
 from models.evaluation import EvaluationProject
@@ -75,7 +77,7 @@ def crawl_website(
     Crawl a website starting from the given URL.
 
     This is a synchronous Celery task that runs the async spider
-    via asyncio.run().
+    via asyncio.run(). Publishes SSE events for real-time progress.
 
     Args:
         evaluation_id: The evaluation UUID this crawl belongs to
@@ -86,14 +88,24 @@ def crawl_website(
     Returns:
         dict with pages_found count and evaluation_id
     """
+    task_id = self.request.id
+
     logger.info(
         "crawl_task_starting",
-        task_id=self.request.id,
+        task_id=task_id,
         evaluation_id=evaluation_id,
         target_url=target_url,
         max_pages=max_pages,
         respect_robots=respect_robots,
     )
+
+    # Publish: Task started
+    publish_task_event(task_id, make_event("progress", {
+        "step": "started",
+        "message": "Crawl started",
+        "pages_found": 0,
+        "evaluation_id": evaluation_id,
+    }))
 
     session = get_sync_session()
 
@@ -116,6 +128,14 @@ def crawl_website(
             evaluation_id=evaluation_id,
             status="EXPLORING"
         )
+
+        # Publish: Browser launching
+        publish_task_event(task_id, make_event("progress", {
+            "step": "exploring",
+            "message": "Browser launched, crawling pages...",
+            "pages_found": 0,
+            "evaluation_id": evaluation_id,
+        }))
 
         # Run the async spider synchronously
         crawl_results = asyncio.run(
@@ -158,6 +178,18 @@ def crawl_website(
                 session.add(new_page)
                 pages_inserted += 1
 
+                # Publish: Page found event
+                publish_task_event(task_id, make_event("progress", {
+                    "step": "page_found",
+                    "message": f"Found: {page_data.url}",
+                    "pages_found": pages_inserted,
+                    "url": page_data.url,
+                    "page_type": page_data.page_type,
+                    "page_title": page_data.title,
+                    "evaluation_id": evaluation_id,
+                    "percent": min(95, int((pages_inserted / max_pages) * 100)),
+                }))
+
         # Commit all new pages
         session.commit()
 
@@ -167,11 +199,20 @@ def crawl_website(
 
         logger.info(
             "crawl_task_completed",
-            task_id=self.request.id,
+            task_id=task_id,
             evaluation_id=evaluation_id,
             pages_found=len(crawl_results),
             pages_inserted=pages_inserted
         )
+
+        # Publish: Crawl complete
+        publish_task_event(task_id, make_event("complete", {
+            "step": "complete",
+            "message": f"Crawl complete — {len(crawl_results)} pages discovered",
+            "pages_found": len(crawl_results),
+            "pages_inserted": pages_inserted,
+            "evaluation_id": evaluation_id,
+        }))
 
         return {
             "pages_found": len(crawl_results),
@@ -182,11 +223,18 @@ def crawl_website(
     except Exception as e:
         logger.error(
             "crawl_task_failed",
-            task_id=self.request.id,
+            task_id=task_id,
             evaluation_id=evaluation_id,
             error=str(e),
             retry_count=self.request.retries,
         )
+
+        # Publish: Error event
+        publish_task_event(task_id, make_event("error", {
+            "step": "error",
+            "message": str(e),
+            "evaluation_id": evaluation_id,
+        }))
 
         # Reset evaluation status to DRAFT on failure
         try:
