@@ -1,86 +1,162 @@
-# Accessibility Evaluation Platform Prototype
+<div align="center">
 
-End-to-end accessibility evaluation platform implementing WCAG-EM methodology.
+# WCAG Accessibility Evaluation Platform
 
-## Tech Stack
+**A comprehensive, enterprise-grade accessibility evaluation platform implementing the W3C WCAG-EM methodology**
 
-### Backend
+</div>
 
-- **FastAPI** — Async Python web framework
-- **PostgreSQL** — Primary database
-- **Redis** — Task queue broker & caching
-- **Celery** — Distributed task queue
-- **Playwright** — Browser automation for accessibility scanning
-- **Firebase Admin** — Authentication
+---
 
-### Frontend
+## Overview
 
-- **Vue 3** — Composition API
-- **Pinia** — State management
-- **Vue Router** — Client-side routing
-- **Tailwind CSS** — Utility-first styling
-- **Axios** — HTTP client
+The WCAG Accessibility Evaluation Platform is a full-featured web application for conducting comprehensive accessibility audits following the [W3C Website Accessibility Conformance Evaluation Methodology (WCAG-EM)](https://www.w3.org/WAI/test-evaluate/conformance/wcag-em/).
 
-### Infrastructure
+It combines automated testing with axe-core, manual review workflows, and detailed reporting to help organizations achieve and maintain WCAG 2.1 Level AA compliance.
 
-- **Docker Compose** — Container orchestration
-- **Nginx** — Reverse proxy
-- **MinIO** — S3-compatible object storage
+### Why This Platform?
 
-## Getting Started
+- **Standards-Compliant**: Implements the official W3C WCAG-EM methodology
+- **Real-time Progress**: SSE-powered live updates for all long-running tasks
+- **Multi-tenant Architecture**: Full organization isolation with PostgreSQL RLS
+- **Role-Based Access**: Granular permissions for teams of all sizes
+- **Longitudinal Tracking**: Monitor accessibility trends over time
+- **Multiple Export Formats**: PDF, CSV, and W3C EARL reports
 
-### Prerequisites
+---
 
-- Docker Desktop
-- Node.js 20+
-- Python 3.12+
-- Git
+## Features
 
-### Environment Setup
+### Core Capabilities
 
-1. Clone the repository:
+| Feature                    | Description                                                            |
+| -------------------------- | ---------------------------------------------------------------------- |
+| **Multi-tenancy**          | Complete organization isolation using PostgreSQL Row-Level Security    |
+| **RBAC**                   | 4 roles (Owner, Auditor, Reviewer, Viewer) with granular permissions   |
+| **WCAG-EM Sampling**       | Structured + random page sampling per methodology Step 3               |
+| **Disability Profiles**    | 4 profiles (Blind, Low Vision, Motor, Cognitive) with priority mapping |
+| **Longitudinal Dashboard** | Trend analysis, regression detection, verdict history                  |
+| **Real-time SSE**          | Server-Sent Events for live task progress (no polling)                 |
 
-   ```bash
-   git clone <repository-url>
-   cd accessibility-platform
-   ```
+### WCAG-EM Workflow
 
-2. Copy environment file:
+1. **Define Scope** — Set target URL, conformance level, and evaluation parameters
+2. **Explore Website** — Playwright-based crawler discovers pages (robots.txt aware)
+3. **Select Sample** — WCAG-EM Step 3 algorithm selects representative pages
+4. **Audit Sample** — axe-core engine tests all WCAG 2.1 A/AA criteria
+5. **Report Findings** — Generate PDF, CSV, or EARL conformance reports
 
-   ```bash
-   cp .env.example .env
-   ```
+### Report Formats
 
-3. (Optional) Configure Firebase:
-   - Create a Firebase project at console.firebase.google.com
-   - Enable Email/Password authentication
-   - Download service account key as `firebase_sa.json`
-   - Place it in the project root (it's gitignored)
-   - Update `.env` with your Firebase project ID
+- **PDF Report** — WCAG-EM conformance report (WeasyPrint generated)
+- **CSV Export** — Machine-readable findings for issue trackers
+- **EARL JSON-LD** — W3C Evaluation and Report Language format
 
-4. Start the stack:
+---
 
-   ```bash
-   make up
-   ```
+## Quick Start
 
-5. Verify everything is running:
-
-   ```bash
-   # Check API health
-   curl http://localhost/api/v1/health
-
-   # Open frontend
-   open http://localhost
-   ```
-
-## Development
-
-### Using Docker Compose (recommended)
+### Installation
 
 ```bash
+# Clone the repository
+git clone https://github.com/antaripdebgupta/accessibility-platform.git
+cd accessibility-platform
+
+# Create environment file
+cp .env.example .env
+
 # Start all services
-make up
+make dev
+
+# Verify installation
+curl http://localhost/api/v1/health
+# Expected: {"status":"ok"}
+```
+
+### Access the Application
+
+| Service                | URL                           |
+| ---------------------- | ----------------------------- |
+| **Frontend**           | http://localhost              |
+| **API Docs (Swagger)** | http://localhost/api/v1/docs  |
+| **API Docs (ReDoc)**   | http://localhost/api/v1/redoc |
+| **MinIO Console**      | http://localhost:9001         |
+
+### Development Credentials
+
+In development mode, use the bypass token for API access:
+
+```bash
+Authorization: Bearer dev-bypass-token-local-only
+```
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                        Browser (Vue 3 SPA)                       │
+│  ├─ Firebase Auth SDK          ├─ Pinia State Management        │
+│  └─ EventSource API (SSE)      └─ Tailwind CSS                  │
+└─────────────────────────────────────────────────────────────────┘
+                                │
+                                ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                         Nginx Reverse Proxy                      │
+│  ├─ /api/* → FastAPI Backend                                    │
+│  └─ /* → Vue Frontend (static assets)                           │
+└─────────────────────────────────────────────────────────────────┘
+                                │
+        ┌───────────────────────┼───────────────────────┐
+        ▼                       ▼                       ▼
+┌──────────────┐        ┌──────────────┐        ┌──────────────┐
+│   FastAPI    │        │  PostgreSQL  │        │    MinIO     │
+│   Backend    │        │  + RLS       │        │   Storage    │
+│  (Async)     │        │  (Multi-     │        │  (Reports,   │
+│              │        │   tenant)    │        │  Screenshots)│
+└──────┬───────┘        └──────────────┘        └──────────────┘
+       │
+       ▼
+┌──────────────┐                ┌──────────────┐
+│    Redis     │───────────────▶│   Celery     │
+│  (Broker +   │                │   Worker     │
+│   Pub/Sub)   │                │ (Playwright, │
+└──────────────┘                │   axe-core)  │
+                                └──────────────┘
+```
+
+### Tech Stack
+
+**Backend**
+
+- FastAPI (async Python 3.12)
+- PostgreSQL 16 with Row-Level Security
+- Redis 7.2 for task queue & SSE pub/sub
+- Celery for distributed task processing
+- Playwright for browser automation
+- Firebase Admin SDK for authentication
+
+**Frontend**
+
+- Vue 3 (Composition API)
+- Pinia state management
+- Vue Router
+- Tailwind CSS
+- Firebase Auth SDK
+
+**Infrastructure**
+
+- Docker Compose orchestration
+- Nginx reverse proxy
+- MinIO S3-compatible storage
+
+---
+
+## Development Commands
+
+```bash
+# Start development environment
+make dev
 
 # View logs
 make logs
@@ -90,96 +166,44 @@ make down
 
 # Reset database
 make reset-db
+
+# Run migrations
+make migrate
+
+# Seed WCAG criteria & dev user
+make seed
+
+# Enter API container shell
+make shell-api
+
+# Enter PostgreSQL shell
+make shell-db
 ```
 
-### Development Mode (with hot reload)
+---
 
-```bash
-docker compose -f docker-compose.yml -f docker-compose.dev.yml up
-```
+## Feature
 
-### Running Backend Locally
+| Category           | Feature                  |
+| ------------------ | ------------------------ |
+| **Authentication** | Firebase Auth            |
+| **Multi-tenancy**  | Organization Isolation   |
+| **Security**       | PostgreSQL RLS           |
+| **Access Control** | RBAC (4 roles)           |
+| **Invitations**    | Email-based invites      |
+| **WCAG-EM**        | Full 5-step workflow     |
+| **Crawler**        | Playwright spider        |
+| **Sampling**       | WCAG-EM Step 3 algorithm |
+| **Scanner**        | axe-core integration     |
+| **Profiles**       | 4 disability profiles    |
+| **Dashboard**      | Longitudinal trends      |
+| **Real-time**      | SSE task progress        |
+| **Reports**        | PDF/CSV/EARL exports     |
+| **Storage**        | MinIO integration        |
+| **Audit**          | Full audit logging       |
 
-```bash
-cd backend
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
+## Acknowledgments
 
-# Start API server
-uvicorn main:app --reload --port 8000
-```
-
-### Running Frontend Locally
-
-```bash
-cd frontend
-npm install
-npm run dev
-```
-
-## API Documentation
-
-- **Swagger UI**: http://localhost/api/v1/docs
-- **ReDoc**: http://localhost/api/v1/redoc
-
-## Architecture
-
-```
-┌─────────────┐     ┌─────────────┐     ┌──────────────┐
-│   Browser   │────▶│    Nginx    │────▶│   Vue SPA    │
-│             │     │  (Reverse   │     │  (Frontend)  │
-└─────────────┘     │   Proxy)    │     └──────────────┘
-                    │             │
-                    │             │     ┌──────────────┐
-                    │             │────▶│   FastAPI    │
-                    └─────────────┘     │   (Backend)  │
-                                        └──────┬───────┘
-                                               │
-                    ┌──────────────────────────┼──────────────────────────┐
-                    │                          │                          │
-                    ▼                          ▼                          ▼
-            ┌──────────────┐           ┌──────────────┐           ┌──────────────┐
-            │  PostgreSQL  │           │    Redis     │           │    MinIO     │
-            │  (Database)  │           │   (Broker)   │           │  (Storage)   │
-            └──────────────┘           └──────┬───────┘           └──────────────┘
-                                              │
-                                              ▼
-                                      ┌──────────────┐
-                                      │   Celery     │
-                                      │   Worker     │
-                                      │ (Playwright) │
-                                      └──────────────┘
-```
-
-## What's Implemented
-
-| Feature                    | Status   | Description                                      |
-| -------------------------- | -------- | ------------------------------------------------ |
-| **Authentication**         | Complete | Firebase Auth with dev bypass token              |
-| **Evaluation CRUD**        | Complete | Create, read, update, soft-delete evaluations    |
-| **Page Discovery**         | Complete | Playwright-based crawler with robots.txt support |
-| **Accessibility Scanning** | Complete | axe-core integration with parallel scanning      |
-| **Findings Management**    | Complete | Per-criterion verdict review (pass/fail/N/A)     |
-| **WCAG Criteria**          | Complete | All 50 WCAG 2.1 Level A & AA criteria seeded     |
-| **PDF Reports**            | Complete | WeasyPrint-generated WCAG-EM conformance reports |
-| **CSV/EARL Export**        | Complete | Machine-readable accessibility findings export   |
-| **Audit Logging**          | Complete | Full audit trail for compliance                  |
-| **Multi-org Support**      | Complete | Organisation-scoped evaluations                  |
-| **Responsive UI**          | Complete | Mobile-friendly Vue 3 + Tailwind interface       |
-
-## WCAG-EM Workflow
-
-The platform implements the [WCAG-EM methodology](https://www.w3.org/WAI/test-evaluate/conformance/wcag-em/):
-
-1. **Define Scope** — Set target URL and evaluation parameters
-2. **Explore Website** — Crawl and discover pages automatically
-3. **Select Sample** — Choose representative pages for testing
-4. **Audit Sample** — Run axe-core accessibility tests
-5. **Report Findings** — Review verdicts and generate conformance report
-
-## Documentation
-
-- [Developer Setup Guide](./DEVELOPER_SETUP.md) — Complete local setup instructions
-- [Firebase Setup](./FIREBASE_SETUP.md) — Authentication configuration
-- [API Documentation](http://localhost/api/v1/docs) — Interactive Swagger UI
+- [W3C WAI](https://www.w3.org/WAI/) for WCAG guidelines and WCAG-EM methodology
+- [Deque Systems](https://www.deque.com/) for the axe-core accessibility engine
+- [Playwright](https://playwright.dev/) for reliable browser automation

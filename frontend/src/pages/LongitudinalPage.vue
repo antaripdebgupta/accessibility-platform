@@ -11,6 +11,9 @@
         </p>
       </div>
 
+      <!-- Help Panel -->
+      <LongitudinalHelpPanel />
+
       <!-- Loading State -->
       <div v-if="loading" class="flex items-center justify-center py-20">
         <div class="flex flex-col items-center gap-4">
@@ -408,6 +411,7 @@
 
 <script setup>
 import CriterionTrendChart from '@/components/longitudinal/CriterionTrendChart.vue'
+import LongitudinalHelpPanel from '@/components/longitudinal/LongitudinalHelpPanel.vue'
 import RegressionAlert from '@/components/longitudinal/RegressionAlert.vue'
 import TotalFindingsChart from '@/components/longitudinal/TotalFindingsChart.vue'
 import TrendSummaryCards from '@/components/longitudinal/TrendSummaryCards.vue'

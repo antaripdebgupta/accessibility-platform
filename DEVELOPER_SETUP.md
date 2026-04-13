@@ -2,6 +2,20 @@
 
 Complete guide for setting up the WCAG Accessibility Evaluation Platform locally.
 
+## 🎯 What's Implemented
+
+This platform is a **feature-complete** WCAG-EM evaluation tool with:
+
+| Feature                    | Status | Description                                     |
+| -------------------------- | ------ | ----------------------------------------------- |
+| **Multi-tenancy**          | ✅     | PostgreSQL Row-Level Security for org isolation |
+| **Full RBAC**              | ✅     | 4 roles (Owner, Auditor, Reviewer, Viewer)      |
+| **WCAG-EM Sampling**       | ✅     | Structured + random sampling algorithm          |
+| **Disability Profiles**    | ✅     | 4 profiles with criteria priority mapping       |
+| **Longitudinal Dashboard** | ✅     | Trend charts, regression detection              |
+| **SSE Real-time Events**   | ✅     | Server-Sent Events (no polling)                 |
+| **Audit Logging**          | ✅     | Full compliance audit trail                     |
+
 ## Prerequisites
 
 Before starting, ensure you have:
@@ -301,6 +315,81 @@ curl -s -X POST http://localhost/api/v1/evaluations \
   -H "Content-Type: application/json" \
   -d '{"title": ""}' | jq .
 # Expected: {"detail":[{"type":"value_error","loc":["body","title"],...}]}
+```
+
+---
+
+## Real-Time Updates with SSE
+
+The platform uses **Server-Sent Events (SSE)** for real-time task progress updates, replacing traditional polling for a more responsive user experience.
+
+### How SSE Works
+
+```
+┌─────────┐         ┌─────────┐         ┌─────────┐
+│ Celery  │────────▶│  Redis  │────────▶│ FastAPI │
+│ Worker  │  Event  │ Pub/Sub │  Stream │   SSE   │
+└─────────┘         └─────────┘         └────┬────┘
+                                             │
+                                             ▼
+                                       ┌──────────┐
+                                       │ Browser  │
+                                       │EventSrc  │
+                                       └──────────┘
+```
+
+1. **Celery tasks** publish progress events to Redis pub/sub channels
+2. **FastAPI** streams these events via `text/event-stream`
+3. **Frontend** receives updates using EventSource API
+4. **Automatic fallback** to polling if SSE unavailable
+
+### SSE Endpoints
+
+```bash
+# Stream task progress
+curl -N "http://localhost/api/v1/tasks/{task_id}/stream?token=dev-bypass-token-local-only"
+
+# Events streamed:
+# data: {"type":"connected"}
+# data: {"type":"progress","step":"exploring","percent":25,"message":"Found 5 pages"}
+# data: {"type":"complete","result":{...}}
+```
+
+### Event Types
+
+| Event Type  | Description                                              |
+| ----------- | -------------------------------------------------------- |
+| `connected` | SSE connection established                               |
+| `progress`  | Task progress update with percent, message, step details |
+| `complete`  | Task completed successfully with result data             |
+| `error`     | Task failed with error message                           |
+| `heartbeat` | Keep-alive ping (every 30 seconds)                       |
+
+### Testing SSE
+
+```bash
+# Start a task and watch SSE stream
+EVAL_ID="your-eval-id"
+ORG_ID="your-org-id"
+
+# Start exploration
+TASK_ID=$(curl -s -X POST "http://localhost/api/v1/evaluations/$EVAL_ID/explore" \
+  -H "Authorization: Bearer dev-bypass-token-local-only" \
+  -H "X-Org-Id: $ORG_ID" | jq -r '.task_id')
+
+# Stream progress
+curl -N "http://localhost/api/v1/tasks/$TASK_ID/stream?token=dev-bypass-token-local-only"
+```
+
+### Debug SSE
+
+```bash
+# Watch Redis pub/sub
+docker compose exec redis redis-cli
+> PSUBSCRIBE "task:*"
+
+# Watch worker logs
+docker compose logs -f worker | grep -i "progress\|event"
 ```
 
 ---
