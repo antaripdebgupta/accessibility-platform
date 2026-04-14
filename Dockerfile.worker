@@ -70,8 +70,8 @@ ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 
 USER appuser
 
-# Celery worker — queues: crawl, scan, report
-CMD ["celery", "-A", "tasks.celery_app", "worker", \
-     "--loglevel=info", \
-     "--concurrency=2", \
-     "-Q", "crawl,scan,report"]
+# Expose health check port for Render Web Service
+EXPOSE 8001
+
+# Run worker with health endpoint (allows deployment as Web Service on free tier)
+CMD ["python", "worker_with_health.py"]

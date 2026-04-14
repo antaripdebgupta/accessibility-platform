@@ -55,12 +55,15 @@ services:
       - key: CRAWLER_TIMEOUT_MS
         value: "30000"
 
-  - type: worker
+  # Celery Worker (deployed as Web Service for free tier)
+  # Runs a minimal health server + Celery worker in one container
+  - type: web
     name: accessibility-worker
     runtime: docker
     region: oregon
     plan: free
     dockerfilePath: ./Dockerfile.worker
+    healthCheckPath: /health
     autoDeploy: true
     envVars:
       # Application
