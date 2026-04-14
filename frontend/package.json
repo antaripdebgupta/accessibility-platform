@@ -8,7 +8,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "format": "prettier --write .",
-    "prepare": "husky"
+    "prepare": "is-ci || husky"
   },
   "lint-staged": {
     "*.{js,vue,ts,json,css,md}": "prettier --write"
@@ -28,6 +28,8 @@
     "@tailwindcss/postcss": "^4.2.1",
     "@vitejs/plugin-vue": "^6.0.2",
     "autoprefixer": "^10.4.27",
+    "husky": "^9.0.0",
+    "is-ci": "^3.0.1",
     "lint-staged": "^16.3.1",
     "postcss": "^8.5.8",
     "prettier": "^3.8.1",
