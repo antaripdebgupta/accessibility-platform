@@ -1,5 +1,7 @@
+import re
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic import computed_field
+from pydantic import computed_field, Field
 from functools import lru_cache
 
 
@@ -26,8 +28,28 @@ class Settings(BaseSettings):
         """Parse comma-separated ALLOWED_ORIGINS_STR into list."""
         return [origin.strip() for origin in self.allowed_origins_str.split(",") if origin.strip()]
 
-    # Database
-    database_url: str = "postgresql+asyncpg://a11y:a11ypass@postgres:5432/accessibility_db"
+    # Database — raw value from env var / .env (may use any postgres scheme)
+    # Reads from DATABASE_URL env var, but stored as database_url_raw to leave
+    # the computed "database_url" property free for the normalised async URL.
+    database_url_raw: str = Field(
+        default="postgresql+asyncpg://a11y:a11ypass@postgres:5432/accessibility_db",
+        validation_alias="DATABASE_URL",
+    )
+
+    @computed_field
+    @property
+    def database_url(self) -> str:
+        """Normalise DATABASE_URL to always use the asyncpg driver.
+
+        Neon / Render / Supabase typically provide URLs like:
+            postgresql://user:pass@host/db
+            postgres://user:pass@host/db
+        SQLAlchemy's create_async_engine needs:
+            postgresql+asyncpg://user:pass@host/db
+        """
+        url = self.database_url_raw
+        # Replace any postgres(ql) scheme (with or without a +driver) with postgresql+asyncpg
+        return re.sub(r"^postgres(ql)?(\+\w+)?://", "postgresql+asyncpg://", url)
 
     # Redis
     redis_url: str = "redis://redis:6379/0"
