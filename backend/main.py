@@ -3,11 +3,14 @@ Accessibility Evaluation Platform — FastAPI Application Entry Point
 
 Startup order:
   1. Configure logging (structlog)
-  2. Initialise Firebase Admin SDK
-  3. Create FastAPI app with CORS + middleware
-  4. Mount all API routes
+  2. Run database migrations (Alembic)
+  3. Initialise Firebase Admin SDK
+  4. Create FastAPI app with CORS + middleware
+  5. Mount all API routes
 """
 
+import subprocess
+import sys
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -22,6 +25,35 @@ configure_logging()
 logger = get_logger(__name__)
 
 
+def run_migrations():
+    """Run Alembic migrations on startup.
+
+    This allows deployments on platforms without shell access (e.g., Render free tier).
+    Migrations are idempotent — running them multiple times is safe.
+    """
+    logger.info("running_migrations", action="alembic upgrade head")
+    try:
+        result = subprocess.run(
+            ["alembic", "upgrade", "head"],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        if result.returncode == 0:
+            logger.info("migrations_completed", stdout=result.stdout.strip())
+        else:
+            logger.error(
+                "migrations_failed",
+                returncode=result.returncode,
+                stderr=result.stderr.strip(),
+            )
+            # Don't exit — the app might still work if tables exist
+    except subprocess.TimeoutExpired:
+        logger.error("migrations_timeout", message="Migration took longer than 60s")
+    except Exception as e:
+        logger.error("migrations_error", error=str(e))
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Runs once on startup, and once on shutdown."""
@@ -32,6 +64,10 @@ async def lifespan(app: FastAPI):
         version=settings.app_version,
         debug=settings.debug,
     )
+
+    # Run database migrations (safe to run on every deploy)
+    run_migrations()
+
     init_firebase()
     logger.info("app_ready")
 
