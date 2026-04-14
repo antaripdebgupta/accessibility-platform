@@ -2,7 +2,7 @@ services:
   api:
     build:
       context: ./backend
-      dockerfile: Dockerfile.docker
+      dockerfile: Dockerfile
       target: dependencies # Use dependencies stage to have packages installed
     volumes:
       - ./backend:/app
@@ -22,7 +22,7 @@ services:
   worker:
     build:
       context: ./backend
-      dockerfile: Dockerfile.worker.docker
+      dockerfile: Dockerfile.worker
       target: dependencies
     volumes:
       - ./backend:/app

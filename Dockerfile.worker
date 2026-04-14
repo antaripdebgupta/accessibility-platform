@@ -4,11 +4,12 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
-    APP_HOME=/app
+    APP_HOME=/app \
+    PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 
 WORKDIR $APP_HOME
 
-# System deps required by asyncpg, WeasyPrint, and Playwright
+# System deps (asyncpg, WeasyPrint, Playwright/Chromium)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libpq-dev \
     libpango-1.0-0 \
@@ -16,8 +17,23 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libgdk-pixbuf-2.0-0 \
     libffi-dev \
     shared-mime-info \
+    libnss3 \
+    libnspr4 \
+    libatk1.0-0 \
+    libatk-bridge2.0-0 \
+    libcups2 \
+    libdrm2 \
+    libxkbcommon0 \
+    libxcomposite1 \
+    libxdamage1 \
+    libxfixes3 \
+    libxrandr2 \
+    libgbm1 \
+    libasound2t64 \
+    libpangoft2-1.0-0 \
+    fonts-liberation \
+    fonts-noto-color-emoji \
     curl \
-    ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 FROM base AS dependencies
@@ -30,8 +46,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY backend/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Install Playwright browsers for the crawler
-RUN playwright install --with-deps chromium
+# Install Playwright + Chromium
+RUN pip install playwright && \
+    playwright install chromium --with-deps
 
 FROM base AS production
 
@@ -39,24 +56,22 @@ FROM base AS production
 RUN groupadd --gid 1000 appgroup && \
     useradd --uid 1000 --gid appgroup --shell /bin/bash --create-home appuser
 
-# Copy installed packages from dependencies stage
+# Copy installed packages
 COPY --from=dependencies /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages
 COPY --from=dependencies /usr/local/bin /usr/local/bin
 
 # Copy Playwright browsers
-COPY --from=dependencies /root/.cache/ms-playwright /home/appuser/.cache/ms-playwright
+COPY --from=dependencies /ms-playwright /ms-playwright
 
 # Copy backend application code
 COPY --chown=appuser:appgroup backend/ .
 
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+
 USER appuser
 
-ENV PLAYWRIGHT_BROWSERS_PATH=/home/appuser/.cache/ms-playwright
-
-EXPOSE 8000
-
-HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
-    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')" || exit 1
-
-# Use uvicorn directly (gunicorn not needed on single-container Render free tier)
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2", "--timeout-keep-alive", "120"]
+# Celery worker — queues: crawl, scan, report
+CMD ["celery", "-A", "tasks.celery_app", "worker", \
+     "--loglevel=info", \
+     "--concurrency=2", \
+     "-Q", "crawl,scan,report"]

@@ -1,14 +1,10 @@
 services:
   - type: web
     name: accessibility-api
-    runtime: python
+    runtime: docker
     region: oregon
     plan: free
-    rootDir: backend
-    buildCommand: |
-      pip install -r requirements.txt &&
-      playwright install chromium --with-deps
-    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    dockerfilePath: ./Dockerfile
     healthCheckPath: /health
     autoDeploy: true
     envVars:
@@ -61,14 +57,10 @@ services:
 
   - type: worker
     name: accessibility-worker
-    runtime: python
+    runtime: docker
     region: oregon
     plan: free
-    rootDir: backend
-    buildCommand: |
-      pip install -r requirements.txt &&
-      playwright install chromium --with-deps
-    startCommand: celery -A tasks.celery_app worker --loglevel=info --concurrency=2
+    dockerfilePath: ./Dockerfile.worker
     autoDeploy: true
     envVars:
       # Application

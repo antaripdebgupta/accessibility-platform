@@ -58,7 +58,7 @@ services:
   api:
     build:
       context: ./backend
-      dockerfile: Dockerfile.docker
+      dockerfile: Dockerfile
     container_name: a11y_api
     restart: unless-stopped
     env_file: .env
@@ -79,7 +79,7 @@ services:
   worker:
     build:
       context: ./backend
-      dockerfile: Dockerfile.worker.docker
+      dockerfile: Dockerfile.worker
     container_name: a11y_worker
     restart: unless-stopped
     env_file: .env

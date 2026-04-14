@@ -1,0 +1,47 @@
+# Root .dockerignore — for Render deployments (backend only)
+
+# Frontend (not needed for backend Docker build)
+frontend/node_modules/
+frontend/dist/
+frontend/.env*
+
+# Git
+.git/
+.gitignore
+
+# Python caches
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+
+# Virtual envs
+.venv/
+venv/
+backend/.venv/
+backend/venv/
+
+# IDE
+.vscode/
+.idea/
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Docs / deployment files
+*.md
+deploy/
+nginx/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Test / coverage
+.pytest_cache/
+coverage/
+htmlcov/
+
+# Logs
+*.log
