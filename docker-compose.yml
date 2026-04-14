@@ -58,7 +58,7 @@ services:
   api:
     build:
       context: ./backend
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile.docker
     container_name: a11y_api
     restart: unless-stopped
     env_file: .env
@@ -79,7 +79,7 @@ services:
   worker:
     build:
       context: ./backend
-      dockerfile: Dockerfile.worker
+      dockerfile: Dockerfile.worker.docker
     container_name: a11y_worker
     restart: unless-stopped
     env_file: .env
@@ -134,4 +134,3 @@ volumes:
   redis_data:
   minio_data:
   firebase_secrets:
-  # front-end built assets are baked into frontend image (nginx) so no shared volume required

@@ -1,0 +1,122 @@
+services:
+  - type: web
+    name: accessibility-api
+    runtime: python
+    region: oregon
+    plan: free
+    rootDir: backend
+    buildCommand: |
+      pip install -r requirements.txt &&
+      playwright install chromium --with-deps
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      # Application
+      - key: ENV
+        value: production
+      - key: DEBUG
+        value: "false"
+      - key: SECRET_KEY
+        generateValue: true
+      - key: ALLOWED_ORIGINS_STR
+        sync: false # Set manually: https://your-app.vercel.app
+
+      # Database (Neon PostgreSQL - set manually)
+      - key: DATABASE_URL
+        sync: false # postgresql+asyncpg://user:pass@host/db?ssl=require
+
+      # Redis (linked from Render Redis service)
+      - key: REDIS_URL
+        fromService:
+          name: accessibility-redis
+          type: redis
+          property: connectionString
+
+      # Firebase Authentication
+      - key: FIREBASE_PROJECT_ID
+        sync: false # Set manually: your-firebase-project-id
+      - key: FIREBASE_SERVICE_ACCOUNT_KEY
+        value: /etc/secrets/firebase_sa.json
+
+      # Cloudflare R2 Storage (S3-compatible)
+      - key: MINIO_ENDPOINT
+        sync: false # Set manually: <account_id>.r2.cloudflarestorage.com
+      - key: MINIO_ACCESS_KEY
+        sync: false # Set manually: R2 access key
+      - key: MINIO_SECRET_KEY
+        sync: false # Set manually: R2 secret key
+      - key: MINIO_BUCKET_REPORTS
+        value: accessibility-reports
+      - key: MINIO_BUCKET_SCREENSHOTS
+        value: accessibility-screenshots
+      - key: MINIO_SECURE
+        value: "true"
+
+      # Crawler Settings
+      - key: DEFAULT_MAX_PAGES
+        value: "15"
+      - key: CRAWLER_TIMEOUT_MS
+        value: "30000"
+
+  - type: worker
+    name: accessibility-worker
+    runtime: python
+    region: oregon
+    plan: free
+    rootDir: backend
+    buildCommand: |
+      pip install -r requirements.txt &&
+      playwright install chromium --with-deps
+    startCommand: celery -A tasks.celery_app worker --loglevel=info --concurrency=2
+    autoDeploy: true
+    envVars:
+      # Application
+      - key: ENV
+        value: production
+      - key: DEBUG
+        value: "false"
+
+      # Database (Neon PostgreSQL - set manually)
+      - key: DATABASE_URL
+        sync: false
+
+      # Redis (linked from Render Redis service)
+      - key: REDIS_URL
+        fromService:
+          name: accessibility-redis
+          type: redis
+          property: connectionString
+
+      # Firebase Authentication
+      - key: FIREBASE_PROJECT_ID
+        sync: false
+      - key: FIREBASE_SERVICE_ACCOUNT_KEY
+        value: /etc/secrets/firebase_sa.json
+
+      # Cloudflare R2 Storage
+      - key: MINIO_ENDPOINT
+        sync: false
+      - key: MINIO_ACCESS_KEY
+        sync: false
+      - key: MINIO_SECRET_KEY
+        sync: false
+      - key: MINIO_BUCKET_REPORTS
+        value: accessibility-reports
+      - key: MINIO_BUCKET_SCREENSHOTS
+        value: accessibility-screenshots
+      - key: MINIO_SECURE
+        value: "true"
+
+      # Crawler Settings
+      - key: DEFAULT_MAX_PAGES
+        value: "15"
+      - key: CRAWLER_TIMEOUT_MS
+        value: "30000"
+
+  - type: redis
+    name: accessibility-redis
+    region: oregon
+    plan: free
+    maxmemoryPolicy: allkeys-lru
+    ipAllowList: [] # Allow all IPs (internal only)

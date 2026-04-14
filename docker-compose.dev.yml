@@ -1,11 +1,8 @@
-# Docker Compose Dev Override — Hot Reload & Development Tools
-# Usage: docker compose -f docker-compose.yml -f docker-compose.dev.yml up
-
 services:
   api:
     build:
       context: ./backend
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile.docker
       target: dependencies # Use dependencies stage to have packages installed
     volumes:
       - ./backend:/app
@@ -25,7 +22,7 @@ services:
   worker:
     build:
       context: ./backend
-      dockerfile: Dockerfile.worker
+      dockerfile: Dockerfile.worker.docker
       target: dependencies
     volumes:
       - ./backend:/app
