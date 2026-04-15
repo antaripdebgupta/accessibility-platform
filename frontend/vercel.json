@@ -6,6 +6,10 @@
   "installCommand": "npm install",
   "rewrites": [
     {
+      "source": "/api/:path*",
+      "destination": "https://accessibility-api-abil.onrender.com/api/:path*"
+    },
+    {
       "source": "/((?!assets|favicon|robots).*)",
       "destination": "/index.html"
     }

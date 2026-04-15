@@ -9,9 +9,14 @@ import axios from 'axios'
 
 import { useAuthStore } from '../stores/auth'
 
+// Resolve API base URL:
+// - In production: VITE_API_URL must be set (e.g. https://accessibility-api-abil.onrender.com)
+// - In development: falls back to '' so Vite's dev proxy handles /api/v1 requests
+const API_BASE = import.meta.env.VITE_API_URL || ''
+
 // Create Axios instance with base configuration
 const api = axios.create({
-  baseURL: '/api/v1',
+  baseURL: `${API_BASE}/api/v1`,
   timeout: 30000,
   headers: {
     'Content-Type': 'application/json',

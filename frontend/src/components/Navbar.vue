@@ -419,6 +419,6 @@ function handleProfileSelect(profileId) {
 }
 
 // Debug logs to verify state
-console.log('authStore.user:', authStore.user)
-console.log('orgStore.organisations:', orgStore.organisations)
+//console.log('authStore.user:', authStore.user)
+//console.log('orgStore.organisations:', orgStore.organisations)
 </script>

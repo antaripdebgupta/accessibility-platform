@@ -64,7 +64,8 @@ export async function createTaskStream(taskId, handlers = {}) {
     }
 
     // Construct SSE URL with token in query param
-    const url = `/api/v1/tasks/${taskId}/stream?token=${encodeURIComponent(firebaseToken)}`
+    const apiBase = import.meta.env.VITE_API_URL || ''
+    const url = `${apiBase}/api/v1/tasks/${taskId}/stream?token=${encodeURIComponent(firebaseToken)}`
 
     // Create EventSource
     const eventSource = new EventSource(url)

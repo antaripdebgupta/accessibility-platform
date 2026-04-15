@@ -20,7 +20,7 @@ class Settings(BaseSettings):
     secret_key: str = "change-me-in-production"
 
     # CORS origins as comma-separated string (parsed by property)
-    allowed_origins_str: str = "http://localhost,http://localhost:5173"
+    allowed_origins_str: str = "http://localhost,http://localhost:5173,https://accessibility-platform-hazel.vercel.app,https://accessibility-platform-git-main-antaripdebguptas-projects.vercel.app,https://accessibility-platform-antaripdebguptas-projects.vercel.app"
 
     @computed_field
     @property

@@ -873,7 +873,7 @@ evtSource.onmessage = (event) => {
               </p>
               <div class="mt-8 grid gap-4 sm:grid-cols-2">
                 <a
-                  href="/api/v1/docs"
+                  :href="`${apiBase}/api/v1/docs`"
                   target="_blank"
                   class="group rounded-lg border border-gray-200 p-6 transition-colors hover:border-blue-300 hover:bg-blue-50 dark:border-gray-800 dark:hover:border-blue-700 dark:hover:bg-blue-900/20"
                 >
@@ -906,7 +906,7 @@ evtSource.onmessage = (event) => {
                   </div>
                 </a>
                 <a
-                  href="/api/v1/redoc"
+                  :href="`${apiBase}/api/v1/redoc`"
                   target="_blank"
                   class="group rounded-lg border border-gray-200 p-6 transition-colors hover:border-blue-300 hover:bg-blue-50 dark:border-gray-800 dark:hover:border-blue-700 dark:hover:bg-blue-900/20"
                 >
@@ -1056,6 +1056,8 @@ evtSource.onmessage = (event) => {
 
 <script setup>
 import { onMounted, onUnmounted, ref } from 'vue'
+
+const apiBase = import.meta.env.VITE_API_URL || ''
 
 const activeSection = ref('introduction')
 
