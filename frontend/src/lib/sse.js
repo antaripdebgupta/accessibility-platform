@@ -4,6 +4,11 @@
  * Wrapper around the browser EventSource API for real-time task progress streaming.
  * Handles Firebase auth token injection, connection management, and event dispatching.
  *
+ * Features:
+ * - Automatic token refresh on reconnection
+ * - Exponential backoff for retries
+ * - Proper cleanup on connection failures
+ *
  * Note: EventSource does not support custom headers, so auth token is passed via
  * query parameter (?token=xxx).
  */
@@ -12,6 +17,11 @@ import { auth } from './firebase'
 
 // Module-level storage for active EventSource connections
 const activeStreams = new Map()
+
+// Track retry attempts for exponential backoff
+const retryAttempts = new Map()
+const MAX_RETRIES = 3
+const BASE_RETRY_DELAY = 2000 // 2 seconds
 
 /**
  * Check if SSE/EventSource is supported in this browser.
@@ -131,25 +141,59 @@ export async function createTaskStream(taskId, handlers = {}) {
     }
 
     // Handle connection errors
-    eventSource.onerror = (e) => {
+    eventSource.onerror = async (e) => {
       console.error('SSE: Connection error', e)
+
+      // Get current retry count
+      const retries = retryAttempts.get(taskId) || 0
 
       // Check if the connection was closed
       if (eventSource.readyState === EventSource.CLOSED) {
-        handlers.onError?.({ data: { message: 'Connection closed' } })
-        closeTaskStream(taskId)
+        // Connection was closed - check if we should retry
+        if (retries < MAX_RETRIES) {
+          retryAttempts.set(taskId, retries + 1)
+          const delay = BASE_RETRY_DELAY * Math.pow(2, retries)
+          console.debug(
+            `SSE: Will retry in ${delay}ms (attempt ${retries + 1}/${MAX_RETRIES})`,
+          )
+
+          // Clean up current stream
+          closeTaskStream(taskId)
+
+          // Retry with fresh token after delay
+          setTimeout(async () => {
+            try {
+              await createTaskStream(taskId, handlers)
+            } catch (retryError) {
+              console.error('SSE: Retry failed', retryError)
+              handlers.onError?.({
+                data: { message: 'Connection failed after retries' },
+              })
+            }
+          }, delay)
+        } else {
+          // Max retries exceeded
+          retryAttempts.delete(taskId)
+          handlers.onError?.({
+            data: { message: 'Connection closed - max retries exceeded' },
+          })
+          closeTaskStream(taskId)
+        }
       } else if (eventSource.readyState === EventSource.CONNECTING) {
         // Browser is automatically reconnecting - this is normal for SSE
+        // But we may need a fresh token
         console.debug('SSE: Reconnecting...')
       } else {
+        retryAttempts.delete(taskId)
         handlers.onError?.({ data: { message: 'Connection lost' } })
         closeTaskStream(taskId)
       }
     }
 
-    // Handle connection open
+    // Handle connection open - reset retry counter on success
     eventSource.onopen = () => {
       console.debug('SSE: Connection opened for task', taskId)
+      retryAttempts.delete(taskId) // Reset retries on successful connection
     }
 
     // Return cleanup function
@@ -182,6 +226,8 @@ export function closeTaskStream(taskId) {
     }
     activeStreams.delete(taskId)
   }
+  // Also clean up retry tracking
+  retryAttempts.delete(taskId)
 }
 
 /**
@@ -199,6 +245,7 @@ export function closeAllStreams() {
     }
   }
   activeStreams.clear()
+  retryAttempts.clear()
 }
 
 /**

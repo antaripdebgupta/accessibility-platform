@@ -1,4 +1,6 @@
 import re
+import logging
+from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import computed_field, Field
@@ -96,3 +98,47 @@ def get_settings() -> Settings:
 
 
 settings = get_settings()
+
+def normalize_db_url(db_url: str, driver: str) -> str:
+    """
+    Normalize the database URL for asyncpg or psycopg2 safely.
+    """
+
+    parsed = urlparse(db_url)
+    query = parse_qs(parsed.query)
+
+    # Remove unsupported params
+    query.pop("channel_binding", None)
+
+    # Normalize scheme
+    scheme = parsed.scheme
+
+    if driver == "asyncpg":
+        scheme = "postgresql+asyncpg"
+        query["ssl"] = ["require"]
+        query.pop("sslmode", None)
+
+    elif driver == "psycopg2":
+        scheme = "postgresql"
+        query["sslmode"] = ["require"]
+        query.pop("ssl", None)
+
+    else:
+        raise ValueError(f"Unsupported driver: {driver}")
+
+    # Rebuild query
+    new_query = urlencode(query, doseq=True)
+
+    # Rebuild full URL
+    normalized = parsed._replace(scheme=scheme, query=new_query)
+    final_url = urlunparse(normalized)
+
+    # Safe logging (mask password)
+    masked_netloc = f"{parsed.username}:***@{parsed.hostname}"
+    if parsed.port:
+        masked_netloc += f":{parsed.port}"
+
+    safe_url = normalized._replace(netloc=masked_netloc)
+    logging.info(f"[DB] Using {driver} URL: {urlunparse(safe_url)}")
+
+    return final_url

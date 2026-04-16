@@ -10,7 +10,7 @@
       "destination": "https://accessibility-api-abil.onrender.com/api/:path*"
     },
     {
-      "source": "/((?!assets|favicon|robots).*)",
+      "source": "/((?!assets/).*)",
       "destination": "/index.html"
     }
   ],

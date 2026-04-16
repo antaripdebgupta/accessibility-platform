@@ -1,21 +1,21 @@
 """
-Server-Sent Events (SSE) API Routes.
+SSE (Server-Sent Events) endpoint for real-time task progress streaming.
 
-Provides real-time streaming of Celery task progress events to browser clients.
-Uses Redis pub/sub as the event bus between Celery workers and FastAPI.
-
-SSE replaces polling with a persistent HTTP connection that streams events
-as they happen, providing:
-- Instant UI updates (no 3-second polling delay)
-- Reduced server load (no unnecessary requests)
-- Granular progress (per-page crawl/scan updates)
+Key design decisions:
+  - 25s heartbeat (SSE comment) keeps Render's 60s proxy from killing idle streams
+  - Polls Celery state for up to 10s when task hasn't been picked up yet,
+    so the client doesn't get an empty stream and immediately reconnect-loop
+  - Returns Last-Event-ID header so browsers resume from the right point
+  - stream_end sentinel lets the client close the EventSource cleanly
 """
 
+import asyncio
 import json
+import time
 from typing import AsyncGenerator
 
 from celery.result import AsyncResult
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Header, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -26,218 +26,192 @@ from db.session import get_db
 from tasks import celery_app
 
 logger = get_logger(__name__)
-
 router = APIRouter(tags=["SSE"])
 
+HEARTBEAT_INTERVAL = 20      # seconds — safely under Render's 60s proxy timeout
+TASK_PENDING_WAIT   = 15     # max seconds to wait for a PENDING task to start
+TASK_POLL_INTERVAL  = 1.0    # how often to check Celery state while pending
 
-def format_sse(data: dict) -> str:
+
+def _sse_data(payload: dict, event_id: int | None = None) -> str:
+    """Format a data frame, optionally with an id: line for reconnect support."""
+    lines = []
+    if event_id is not None:
+        lines.append(f"id: {event_id}")
+    lines.append(f"data: {json.dumps(payload)}")
+    lines.append("")          # blank line terminates the frame
+    lines.append("")
+    return "\n".join(lines)
+
+
+def _sse_heartbeat() -> str:
+    """SSE comment — browsers/proxies ignore it; TCP stays alive."""
+    return ": heartbeat\n\n"
+
+
+async def _wait_for_task_start(task_id: str) -> str:
     """
-    Format a dict as an SSE message.
-
-    SSE format requires:
-    - Each event is prefixed with "data: "
-    - Events are separated by double newlines
-
-    Args:
-        data: Dict to serialize as JSON
-
-    Returns:
-        Formatted SSE message string
+    Poll Celery until the task leaves PENDING state or we time out.
+    Returns the final Celery status string.
     """
-    json_data = json.dumps(data)
-    return f"data: {json_data}\n\n"
+    deadline = time.monotonic() + TASK_PENDING_WAIT
+    while time.monotonic() < deadline:
+        status = str(AsyncResult(task_id, app=celery_app).status)
+        if status != "PENDING":
+            return status
+        await asyncio.sleep(TASK_POLL_INTERVAL)
+    return "PENDING"
 
 
-async def event_generator(task_id: str) -> AsyncGenerator[str, None]:
-    """
-    Async generator that yields SSE-formatted events for a task.
-
-    Flow:
-    1. Check if task is already completed (instant response)
-    2. Yield "connected" event
-    3. Subscribe to Redis and stream events
-    4. Yield "stream_end" when done
-
-    Args:
-        task_id: The Celery task ID to stream events for
-
-    Yields:
-        SSE-formatted event strings
-    """
-    logger.info(
-        "sse_stream_starting",
-        task_id=task_id,
-    )
+async def event_generator(
+    task_id: str,
+    last_event_id: int | None,
+) -> AsyncGenerator[str, None]:
+    logger.info("sse_stream_starting", task_id=task_id)
+    event_seq = (last_event_id or 0) + 1   # monotonic counter for id: lines
 
     try:
-        # Step 1: Check if task already completed
-        result = AsyncResult(task_id, app=celery_app)
+        result     = AsyncResult(task_id, app=celery_app)
         celery_status = result.status
 
         if celery_status == "SUCCESS":
-            # Task already done - yield complete event immediately
-            logger.info(
-                "sse_task_already_complete",
-                task_id=task_id,
-            )
-            yield format_sse(make_event("complete", {
+            logger.info("sse_task_already_complete", task_id=task_id)
+            yield _sse_data(make_event("complete", {
                 "step": "complete",
                 "message": "Task completed",
                 "result": result.result if isinstance(result.result, dict) else {},
-            }))
-            yield format_sse({"type": "stream_end"})
+            }), event_seq)
+            yield _sse_data({"type": "stream_end"})
             return
 
         if celery_status == "FAILURE":
-            # Task already failed - yield error event immediately
+            error_info = "Unknown error"
             try:
                 error_info = str(result.info) if result.info else "Unknown error"
             except Exception:
-                error_info = "Error details unavailable"
-
-            logger.info(
-                "sse_task_already_failed",
-                task_id=task_id,
-                error=error_info,
-            )
-            yield format_sse(make_event("error", {
-                "step": "error",
-                "message": error_info,
-            }))
-            yield format_sse({"type": "stream_end"})
+                pass
+            logger.info("sse_task_already_failed", task_id=task_id, error=error_info)
+            yield _sse_data(make_event("error", {"step": "error", "message": error_info}), event_seq)
+            yield _sse_data({"type": "stream_end"})
             return
 
-        # Step 2: Yield initial connected event
-        yield format_sse({"type": "connected", "task_id": task_id})
+        yield _sse_data({"type": "connected", "task_id": task_id}, event_seq)
+        event_seq += 1
 
-        # Step 3: Subscribe to Redis and stream events
-        async for event in subscribe_task_events(task_id):
-            yield format_sse(event)
+        if celery_status == "PENDING":
+            logger.info("sse_waiting_for_task_start", task_id=task_id)
+            # Send a heartbeat immediately so the proxy doesn't drop us
+            yield _sse_heartbeat()
 
-            # Check for terminal events
-            event_type = event.get("type")
-            if event_type in ("complete", "error"):
+            celery_status = await _wait_for_task_start(task_id)
+
+            if celery_status == "PENDING":
+                # Task never started — worker may be down
+                logger.warning("sse_task_still_pending_timeout", task_id=task_id)
+                yield _sse_data(make_event("progress", {
+                    "step": "queued",
+                    "message": "Task is queued — waiting for a worker...",
+                }), event_seq)
+                event_seq += 1
+                # Fall through to the streaming loop; it'll pick up events
+                # whenever the worker actually starts.
+
+            elif celery_status in ("SUCCESS", "FAILURE"):
+                # Raced — finished while we were polling
+                result = AsyncResult(task_id, app=celery_app)
+                if celery_status == "SUCCESS":
+                    yield _sse_data(make_event("complete", {
+                        "step": "complete",
+                        "message": "Task completed",
+                        "result": result.result if isinstance(result.result, dict) else {},
+                    }), event_seq)
+                else:
+                    yield _sse_data(make_event("error", {
+                        "step": "error",
+                        "message": str(result.info or "Task failed"),
+                    }), event_seq)
+                yield _sse_data({"type": "stream_end"})
+                return
+
+        async for event in _stream_with_heartbeat(task_id):
+            if event is None:
+                # Heartbeat slot
+                yield _sse_heartbeat()
+                continue
+
+            yield _sse_data(event, event_seq)
+            event_seq += 1
+
+            if event.get("type") in ("complete", "error"):
                 break
 
-        # Step 4: Yield final stream_end event
-        yield format_sse({"type": "stream_end"})
+        yield _sse_data({"type": "stream_end"})
+
+    except asyncio.CancelledError:
+        logger.info("sse_client_disconnected", task_id=task_id)
 
     except Exception as e:
-        logger.error(
-            "sse_stream_error",
-            task_id=task_id,
-            error=str(e),
-        )
-        yield format_sse(make_event("error", {
+        logger.error("sse_stream_error", task_id=task_id, error=str(e))
+        yield _sse_data(make_event("error", {
             "step": "error",
             "message": f"Stream error: {str(e)}",
         }))
-        yield format_sse({"type": "stream_end"})
+        yield _sse_data({"type": "stream_end"})
 
     finally:
-        logger.info(
-            "sse_stream_ended",
-            task_id=task_id,
-        )
+        logger.info("sse_stream_ended", task_id=task_id)
 
 
-@router.get(
-    "/{task_id}/stream",
-    response_class=StreamingResponse,
-    summary="Stream task events via SSE",
-    description="""
-    Stream real-time progress events for a Celery task using Server-Sent Events.
+async def _stream_with_heartbeat(task_id: str):
+    """
+    Wraps subscribe_task_events() and yields None (heartbeat signal) when no
+    real event arrives within HEARTBEAT_INTERVAL seconds.
+    """
+    event_iter = subscribe_task_events(task_id).__aiter__()
 
-    ## Authentication
+    while True:
+        try:
+            event = await asyncio.wait_for(
+                event_iter.__anext__(),
+                timeout=HEARTBEAT_INTERVAL,
+            )
+            yield event
 
-    Provide Firebase token via either:
-    - `Authorization: Bearer <token>` header
-    - `?token=<token>` query parameter (required for EventSource)
+        except asyncio.TimeoutError:
+            yield None          # caller converts this to ": heartbeat\n\n"
 
-    ## Event Types
+        except StopAsyncIteration:
+            break
 
-    - `connected`: Connection established successfully
-    - `progress`: Task progress update (step, message, percent, etc.)
-    - `complete`: Task finished successfully
-    - `error`: Task failed or stream error
-    - `heartbeat`: Keep-alive ping (every 30 seconds)
-    - `stream_end`: Stream is closing
 
-    ## Event Data
-
-    Progress events include contextual data depending on task type:
-
-    **Crawl tasks:**
-    - `step`: "started" | "exploring" | "page_found" | "complete"
-    - `pages_found`: Number of pages discovered
-    - `page_url`: URL of discovered page
-    - `page_type`: Type classification of page
-
-    **Scan tasks:**
-    - `step`: "started" | "scanning_page" | "page_complete" | "complete"
-    - `pages_scanned`: Number of pages scanned
-    - `pages_total`: Total pages to scan
-    - `percent`: Progress percentage (0-100)
-    - `findings_found`: Issues found on current page
-
-    **Report tasks:**
-    - `step`: "started" | "verdict_computed" | "full_generated" | "earl_generated" | "csv_generated" | "complete"
-    - `verdict`: Conformance verdict
-    - `report_type`: Type of report generated
-
-    ## Connection Limits
-
-    - Heartbeats sent every 30 seconds
-    - Connection timeout: 30 minutes
-    - Automatic cleanup on disconnect
-
-    ## Example Usage (JavaScript)
-
-    ```javascript
-    const token = await auth.currentUser.getIdToken();
-    const url = `/api/v1/tasks/${taskId}/stream?token=${token}`;
-    const eventSource = new EventSource(url);
-
-    eventSource.onmessage = (e) => {
-      const event = JSON.parse(e.data);
-      console.log(event.type, event.data);
-    };
-    ```
-    """,
-)
+@router.get("/{task_id}/stream", response_class=StreamingResponse)
 async def stream_task_events(
     task_id: str,
-    token: str | None = Query(None, description="Firebase auth token (alternative to Authorization header)"),
+    token: str | None = Query(None),
+    last_event_id: str | None = Header(None, alias="Last-Event-ID"),
     user=Depends(get_current_user_sse),
     db: AsyncSession = Depends(get_db),
 ) -> StreamingResponse:
-    """
-    Stream real-time task events via Server-Sent Events.
-
-    Returns a StreamingResponse with text/event-stream content type.
-    Events are pushed from Celery workers through Redis pub/sub.
-
-    Args:
-        task_id: The Celery task ID to stream
-        token: Optional Firebase token (for EventSource which can't set headers)
-        user: Authenticated user (from header or query param token)
-        db: Database session
-
-    Returns:
-        StreamingResponse with SSE event stream
-    """
     logger.info(
         "sse_endpoint_called",
         task_id=task_id,
         user_id=str(user.id) if user else None,
     )
 
+    # Parse Last-Event-ID for reconnect support
+    last_id: int | None = None
+    if last_event_id:
+        try:
+            last_id = int(last_event_id)
+        except ValueError:
+            pass
+
     return StreamingResponse(
-        event_generator(task_id),
+        event_generator(task_id, last_id),
         media_type="text/event-stream",
         headers={
-            "Cache-Control": "no-cache",
-            "X-Accel-Buffering": "no",  # Disable Nginx buffering
-            "Connection": "keep-alive",
+            "Cache-Control":    "no-cache",
+            "X-Accel-Buffering": "no",        # disable Nginx/Render proxy buffering
+            "Connection":       "keep-alive",
         },
     )

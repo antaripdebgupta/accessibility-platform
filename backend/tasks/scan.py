@@ -15,12 +15,11 @@ from celery import Task
 from celery.exceptions import SoftTimeLimitExceeded
 from celery.signals import worker_ready
 from playwright.async_api import async_playwright
-from sqlalchemy import create_engine, select, and_, func
-from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy import select, and_, func
 
-from core.config import settings
 from core.events import publish_task_event, make_event
 from core.logging import get_logger
+from db.sync_engine import get_sync_session
 from models.evaluation import EvaluationProject
 from models.finding import Finding
 from models.page import Page
@@ -31,38 +30,6 @@ from storage.client import ensure_buckets
 from tasks import celery_app
 
 logger = get_logger(__name__)
-
-
-def get_sync_database_url() -> str:
-    """
-    Convert async database URL to sync format for Celery tasks.
-    Replaces postgresql+asyncpg:// with postgresql+psycopg2://
-    """
-    db_url = settings.database_url
-    if "asyncpg" in db_url:
-        return db_url.replace("postgresql+asyncpg", "postgresql+psycopg2")
-    return db_url
-
-
-# Create synchronous engine for Celery tasks
-sync_engine = create_engine(
-    get_sync_database_url(),
-    pool_pre_ping=True,
-    pool_size=5,
-    max_overflow=10,
-)
-
-SyncSessionLocal = sessionmaker(
-    bind=sync_engine,
-    autocommit=False,
-    autoflush=False,
-    expire_on_commit=False,
-)
-
-
-def get_sync_session() -> Session:
-    """Get a synchronous database session for Celery tasks."""
-    return SyncSessionLocal()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
