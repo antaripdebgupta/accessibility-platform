@@ -49,11 +49,14 @@ def run_migrations():
                 database_url=masked_url,
                 cwd=os.getcwd())
     try:
+        # Ensure we run from the backend directory where alembic.ini lives
+        app_dir = os.path.dirname(os.path.abspath(__file__))
         result = subprocess.run(
             ["alembic", "upgrade", "head"],
             capture_output=True,
             text=True,
             timeout=120,  # Increased timeout for cold-start connections
+            cwd=app_dir,
         )
         if result.returncode == 0:
             logger.info("migrations_completed", stdout=result.stdout.strip())

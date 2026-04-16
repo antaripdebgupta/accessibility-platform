@@ -54,6 +54,8 @@ class Settings(BaseSettings):
         url = re.sub(r"^postgres(ql)?(\+\w+)?://", "postgresql+asyncpg://", url)
         # Convert sslmode to ssl for asyncpg compatibility
         url = url.replace("sslmode=", "ssl=")
+        # Remove parameters not supported by asyncpg (e.g. channel_binding from Neon)
+        url = re.sub(r"[&?]channel_binding=[^&]*", "", url)
         return url
 
     # Redis

@@ -97,11 +97,14 @@ async def run_migrations():
     This runs 'alembic upgrade head' to apply all pending migrations.
     """
     try:
+        import os
+        app_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
         result = subprocess.run(
             ["alembic", "upgrade", "head"],
             capture_output=True,
             text=True,
             timeout=120,
+            cwd=app_dir,
         )
 
         if result.returncode == 0:
