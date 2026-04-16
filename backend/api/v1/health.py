@@ -99,12 +99,15 @@ async def run_migrations():
     try:
         import os
         app_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        env = os.environ.copy()
+        env["PYTHONPATH"] = app_dir + os.pathsep + env.get("PYTHONPATH", "")
         result = subprocess.run(
             ["alembic", "upgrade", "head"],
             capture_output=True,
             text=True,
             timeout=120,
             cwd=app_dir,
+            env=env,
         )
 
         if result.returncode == 0:
