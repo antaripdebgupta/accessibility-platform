@@ -1,8 +1,10 @@
 from fastapi import APIRouter, HTTPException
 from datetime import datetime, timezone
 from sqlalchemy import text
+import subprocess
 
 from db.engine import engine
+from core.config import settings
 
 router = APIRouter(tags=["Health"])
 
@@ -19,6 +21,116 @@ async def health_check():
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "service": "accessibility-platform-api",
     }
+
+
+@router.get("/health/db")
+async def db_health_check():
+    """
+    Database health check endpoint.
+    Verifies database connection and lists existing tables.
+    """
+    db_url = settings.database_url
+    # Mask password for logging
+    masked_url = db_url
+    if "@" in db_url:
+        parts = db_url.split("@")
+        prefix = parts[0]
+        if ":" in prefix:
+            scheme_user = prefix.rsplit(":", 1)[0]
+            masked_url = f"{scheme_user}:***@{parts[1]}"
+
+    try:
+        async with engine.begin() as conn:
+            # Check connection
+            result = await conn.execute(text("SELECT 1"))
+            result.fetchone()
+
+            # List tables
+            tables_result = await conn.execute(text("""
+                SELECT table_name
+                FROM information_schema.tables
+                WHERE table_schema = 'public'
+                ORDER BY table_name
+            """))
+            tables = [row[0] for row in tables_result.fetchall()]
+
+            # Check alembic version
+            alembic_version = None
+            try:
+                version_result = await conn.execute(text(
+                    "SELECT version_num FROM alembic_version LIMIT 1"
+                ))
+                row = version_result.fetchone()
+                if row:
+                    alembic_version = row[0]
+            except Exception:
+                pass  # Table might not exist yet
+
+        return {
+            "status": "ok",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "database_url": masked_url,
+            "connection": "success",
+            "tables": tables,
+            "table_count": len(tables),
+            "alembic_version": alembic_version,
+            "migrations_applied": alembic_version is not None,
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "status": "error",
+                "database_url": masked_url,
+                "error": str(e),
+                "error_type": type(e).__name__,
+            },
+        )
+
+
+@router.post("/setup/migrate")
+async def run_migrations():
+    """
+    Manually trigger database migrations.
+
+    Call this endpoint after deployment if migrations didn't run automatically.
+    This runs 'alembic upgrade head' to apply all pending migrations.
+    """
+    try:
+        result = subprocess.run(
+            ["alembic", "upgrade", "head"],
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+
+        if result.returncode == 0:
+            return {
+                "status": "success",
+                "message": "Migrations completed successfully",
+                "stdout": result.stdout.strip(),
+            }
+        else:
+            raise HTTPException(
+                status_code=500,
+                detail={
+                    "status": "error",
+                    "message": "Migration failed",
+                    "returncode": result.returncode,
+                    "stdout": result.stdout.strip(),
+                    "stderr": result.stderr.strip(),
+                },
+            )
+    except subprocess.TimeoutExpired:
+        raise HTTPException(
+            status_code=500,
+            detail={"status": "error", "message": "Migration timed out after 120s"},
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail={"status": "error", "message": str(e), "error_type": type(e).__name__},
+        )
 
 
 # WCAG 2.1 Level A and AA criteria (embedded to avoid import issues)

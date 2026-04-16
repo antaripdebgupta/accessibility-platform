@@ -42,14 +42,19 @@ class Settings(BaseSettings):
         """Normalise DATABASE_URL to always use the asyncpg driver.
 
         Neon / Render / Supabase typically provide URLs like:
-            postgresql://user:pass@host/db
+            postgresql://user:pass@host/db?sslmode=require
             postgres://user:pass@host/db
-        SQLAlchemy's create_async_engine needs:
-            postgresql+asyncpg://user:pass@host/db
+        SQLAlchemy's create_async_engine with asyncpg needs:
+            postgresql+asyncpg://user:pass@host/db?ssl=require
+
+        Note: asyncpg uses 'ssl' parameter, not 'sslmode'.
         """
         url = self.database_url_raw
         # Replace any postgres(ql) scheme (with or without a +driver) with postgresql+asyncpg
-        return re.sub(r"^postgres(ql)?(\+\w+)?://", "postgresql+asyncpg://", url)
+        url = re.sub(r"^postgres(ql)?(\+\w+)?://", "postgresql+asyncpg://", url)
+        # Convert sslmode to ssl for asyncpg compatibility
+        url = url.replace("sslmode=", "ssl=")
+        return url
 
     # Redis
     redis_url: str = "redis://redis:6379/0"

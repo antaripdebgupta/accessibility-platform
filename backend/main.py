@@ -31,13 +31,29 @@ def run_migrations():
     This allows deployments on platforms without shell access (e.g., Render free tier).
     Migrations are idempotent — running them multiple times is safe.
     """
-    logger.info("running_migrations", action="alembic upgrade head")
+    import os
+
+    # Log the database URL (masked) for debugging
+    db_url = settings.database_url
+    masked_url = db_url
+    if "@" in db_url:
+        # Mask password in URL for logging
+        parts = db_url.split("@")
+        prefix = parts[0]
+        if ":" in prefix:
+            scheme_user = prefix.rsplit(":", 1)[0]
+            masked_url = f"{scheme_user}:***@{parts[1]}"
+
+    logger.info("running_migrations",
+                action="alembic upgrade head",
+                database_url=masked_url,
+                cwd=os.getcwd())
     try:
         result = subprocess.run(
             ["alembic", "upgrade", "head"],
             capture_output=True,
             text=True,
-            timeout=60,
+            timeout=120,  # Increased timeout for cold-start connections
         )
         if result.returncode == 0:
             logger.info("migrations_completed", stdout=result.stdout.strip())
@@ -45,13 +61,14 @@ def run_migrations():
             logger.error(
                 "migrations_failed",
                 returncode=result.returncode,
+                stdout=result.stdout.strip(),
                 stderr=result.stderr.strip(),
             )
             # Don't exit — the app might still work if tables exist
     except subprocess.TimeoutExpired:
-        logger.error("migrations_timeout", message="Migration took longer than 60s")
+        logger.error("migrations_timeout", message="Migration took longer than 120s")
     except Exception as e:
-        logger.error("migrations_error", error=str(e))
+        logger.error("migrations_error", error=str(e), error_type=type(e).__name__)
 
 
 @asynccontextmanager
