@@ -45,10 +45,6 @@
             </svg>
           </BaseButton>
 
-          <BaseButton to="/signin" variant="secondary" size="lg">
-            Sign In
-          </BaseButton>
-
           <BaseButton to="/docs" variant="outline" size="lg">
             <svg
               class="mr-2 h-5 w-5"

@@ -705,26 +705,46 @@
                 High-level overview of the platform architecture.
               </p>
               <div class="mt-8 overflow-x-auto rounded-lg bg-gray-900 p-4">
-                <pre
-                  class="text-xs text-gray-100 sm:text-sm"
-                ><code>┌─────────────┐     ┌─────────────┐     ┌──────────────┐
-│   Browser   │────▶│    Nginx    │────▶│   Vue SPA    │
-└─────────────┘     │   Proxy     │     └──────────────┘
-                    │             │     ┌──────────────┐
-                    │             │────▶│   FastAPI    │
-                    └─────────────┘     └──────┬───────┘
-                                               │
-         ┌─────────────────────────────────────┼─────────────────────────────────────┐
-         │                                     │                                     │
-         ▼                                     ▼                                     ▼
- ┌──────────────┐                     ┌──────────────┐                     ┌──────────────┐
- │  PostgreSQL  │                     │    Redis     │                     │    MinIO     │
- └──────────────┘                     └──────┬───────┘                     └──────────────┘
-                                             │
-                                             ▼
-                                     ┌──────────────┐
-                                     │   Celery     │
-                                     └──────────────┘</code></pre>
+                <pre class="text-xs text-gray-100 sm:text-sm">
+                <code>
+┌─────────────────────────────────────────────────────────────────┐
+│                        Browser (Vue 3 SPA)                      │
+│  ├─ Firebase Auth SDK          ├─ Pinia State Management        │
+│  └─ EventSource API (SSE)      └─ Tailwind CSS                  │
+└─────────────────────────────────────────────────────────────────┘
+                                │
+                                ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                         Nginx Reverse Proxy                     │
+│  ├─ /api/* → FastAPI Backend                                    │
+│  └─ /* → Vue Frontend (static assets)                           │
+└─────────────────────────────────────────────────────────────────┘
+                                │
+        ┌───────────────────────┼───────────────────────┐
+        ▼                       ▼                       ▼
+┌──────────────┐        ┌──────────────┐        ┌──────────────┐
+│   FastAPI    │        │  PostgreSQL  │        │    MinIO     │
+│   Backend    │        │   + RLS      │        │   Storage    │
+│   (Async)    │        │  (Multi-     │        │  (Reports,   │
+│              │        │   tenant)    │        │ Screenshots) │
+└──────┬───────┘        └──────┬───────┘        └──────┬───────┘
+       │                       │                       │
+       ▼                       │                       │
+┌──────────────┐               │                       │
+│    Redis     │               │                       │
+│  (Broker +   │               │                       │
+│   Pub/Sub)   │               │                       │
+└──────┬───────┘               │                       │
+       │                       ▼                       ▼
+       │               ┌───────────────────────────────────────┐
+       └──────────────▶│             Celery Worker             │
+                       │      (Playwright · axe-core ·         │
+                       │       WeasyPrint · MinIO SDK ·        │
+                       │         psycopg2 direct)              │
+                       └───────────────────────────────────────┘
+
+                </code>
+              </pre>
               </div>
             </section>
 

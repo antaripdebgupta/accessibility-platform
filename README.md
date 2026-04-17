@@ -1,6 +1,6 @@
 <div align="center">
 
-# WCAG Accessibility Evaluation Platform
+# WCAG Accessibility Evaluation Platform ( Prototype )
 
 **A comprehensive, enterprise-grade accessibility evaluation platform implementing the W3C WCAG-EM methodology**
 
@@ -83,6 +83,8 @@ curl http://localhost/api/v1/health
 | **API Docs (ReDoc)**   | http://localhost/api/v1/redoc |
 | **MinIO Console**      | http://localhost:9001         |
 
+Live API Docs: [view docs](https://accessibility-api-abil.onrender.com/api/v1/docs)
+
 ### Development Credentials
 
 In development mode, use the bypass token for API access:
@@ -95,14 +97,14 @@ Authorization: Bearer dev-bypass-token-local-only
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                        Browser (Vue 3 SPA)                       │
+│                        Browser (Vue 3 SPA)                      │
 │  ├─ Firebase Auth SDK          ├─ Pinia State Management        │
 │  └─ EventSource API (SSE)      └─ Tailwind CSS                  │
 └─────────────────────────────────────────────────────────────────┘
                                 │
                                 ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│                         Nginx Reverse Proxy                      │
+│                         Nginx Reverse Proxy                     │
 │  ├─ /api/* → FastAPI Backend                                    │
 │  └─ /* → Vue Frontend (static assets)                           │
 └─────────────────────────────────────────────────────────────────┘
@@ -111,18 +113,24 @@ Authorization: Bearer dev-bypass-token-local-only
         ▼                       ▼                       ▼
 ┌──────────────┐        ┌──────────────┐        ┌──────────────┐
 │   FastAPI    │        │  PostgreSQL  │        │    MinIO     │
-│   Backend    │        │  + RLS       │        │   Storage    │
-│  (Async)     │        │  (Multi-     │        │  (Reports,   │
-│              │        │   tenant)    │        │  Screenshots)│
-└──────┬───────┘        └──────────────┘        └──────────────┘
-       │
-       ▼
-┌──────────────┐                ┌──────────────┐
-│    Redis     │───────────────▶│   Celery     │
-│  (Broker +   │                │   Worker     │
-│   Pub/Sub)   │                │ (Playwright, │
-└──────────────┘                │   axe-core)  │
-                                └──────────────┘
+│   Backend    │        │   + RLS      │        │   Storage    │
+│   (Async)    │        │  (Multi-     │        │  (Reports,   │
+│              │        │   tenant)    │        │ Screenshots) │
+└──────┬───────┘        └──────┬───────┘        └──────┬───────┘
+       │                       │                       │
+       ▼                       │                       │
+┌──────────────┐               │                       │
+│    Redis     │               │                       │
+│  (Broker +   │               │                       │
+│   Pub/Sub)   │               │                       │
+└──────┬───────┘               │                       │
+       │                       ▼                       ▼
+       │               ┌───────────────────────────────────────┐
+       └──────────────▶│             Celery Worker             │
+                       │      (Playwright · axe-core ·         │
+                       │       WeasyPrint · MinIO SDK ·        │
+                       │         psycopg2 direct)              │
+                       └───────────────────────────────────────┘
 ```
 
 ### Tech Stack
